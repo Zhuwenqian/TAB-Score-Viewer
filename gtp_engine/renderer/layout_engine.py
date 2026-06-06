@@ -5,10 +5,10 @@
 功能描述: 六线谱布局引擎 - 计算所有小节/拍/音符的屏幕坐标
          负责自动换行、分页、宽度分配等核心布局算法
 
-原理:
-  将音轨的所有小节按顺序排列，根据画布宽度自动换行。
-  每行称为一个"System"（系统），包含若干个连续的小节。
-  每个小节内的拍按时间比例分配水平空间。
+核心算法:
+  1. 小节宽度 = 拍数 × 固定间距 + 左右边距（音符越多越宽，有最短长度）
+  2. 每两个拍(Beat)之间使用固定水平间距(NOTE_MIN_SPACING)，不按时值比例缩放
+  3. 自动换行：当一行放不下更多小节时换到下一行（贪心策略）
 
 依赖库:
   - 内部依赖: gtp_engine.models.*, gtp_engine.utils.constants
@@ -216,28 +216,44 @@ class TabLayoutEngine:
         """
         估算一个小节的像素宽度
         
-        算法: 基于拍数量 × 最小间距 + 左右边距
-              多位数品格数字会额外占用空间
+        新算法: 基于拍(音符组)数量 × 固定间距 + 左右边距
+                音符越多小节越长，音符越少小节越短（但有最短长度保证可读性）
+                每两个相邻拍之间使用固定间距(NOTE_MIN_SPACING)，不按时值比例缩放
+        
+        参数:
+            measure: 要估算的小节数据
+            
+        返回:
+            该小节需要的像素宽度
         """
         base_width = self.cfg.MEASURE_PADDING_LEFT + self.cfg.MEASURE_PADDING_RIGHT
         
         if not measure.beats:
-            return base_width + self.cfg.NOTE_MIN_SPACING * 4  # 空小节给基本空间
+            # 空小节：给4个拍位的最短空间
+            return base_width + self.cfg.NOTE_MIN_SPACING * 3
         
-        # 统计总拍数和额外字符数
+        # 核心公式: 拍数 × 固定间距
+        # N个拍之间有 (N-1) 个间隔，最后一个拍也需要一个单位宽度
         total_beats = len(measure.beats)
+        
+        # 固定间距部分：(N-1) 个间隔 × 每个间隔固定宽度
+        beat_spacing_width = max(total_beats - 1, 0) * self.cfg.NOTE_MIN_SPACING
+        
+        # 多位数品格数字额外占位
         extra_chars = 0
         for beat in measure.beats:
             for note in beat.notes:
                 if note.fret >= 10:
-                    extra_chars += 1  # 双位数品格额外占位
+                    extra_chars += 1
                 if note.fret >= 100:
-                    extra_chars += 1  # 三位数再额外占位
+                    extra_chars += 1
+        extra_width = extra_chars * self.cfg.NOTE_EXTRA_WIDTH_PER_CHAR
         
-        width = base_width + total_beats * self.cfg.NOTE_MIN_SPACING
-        width += extra_chars * self.cfg.NOTE_EXTRA_WIDTH_PER_CHAR
+        width = base_width + beat_spacing_width + self.cfg.NOTE_MIN_SPACING + extra_width
         
-        return max(width, 60)  # 最小60px保证可读性
+        # 最短长度保证：即使只有1-2个拍也不会太窄
+        min_width = base_width + self.cfg.NOTE_MIN_SPACING * 3
+        return max(width, min_width)
 
     def _assign_system_coordinates(self, rows: List[List[GTPMeasure]],
                                     start_x: int, start_y: int,
@@ -299,12 +315,16 @@ class TabLayoutEngine:
                                       start_x: int,
                                       usable_width: int) -> int:
         """
-        在一个小节内均匀分布各拍的X坐标
+        在一个小节内按固定间距分布各拍的X坐标
+        
+        新算法: 每两个相邻拍之间使用固定间距(NOTE_MIN_SPACING)，
+                不再按时值比例分配空间。
+                这样音符密集的小节自然更长，稀疏的小节更短（但有最短长度）。
         
         参数:
-            measure:    小节数据
-            m_layout:   小节布局对象（结果写入此处）
-            start_x:    小节内第一个拍的起始X
+            measure:     小节数据
+            m_layout:    小节布局对象（结果写入此处）
+            start_x:     小节内第一个拍的起始X
             usable_width: 总可用宽度（用于参考）
             
         返回:
@@ -313,30 +333,35 @@ class TabLayoutEngine:
         if not measure.beats:
             return start_x + self.cfg.NOTE_MIN_SPACING
         
-        # 计算该小节的可用内部宽度
-        inner_width = self._estimate_measure_width(measure)
-        inner_width -= (
-            self.cfg.MEASURE_PADDING_LEFT + self.cfg.MEASURE_PADDING_RIGHT
-        )
-        
-        # 基于时值比例分配宽度（时长越长的拍占越多空间）
-        total_duration = sum(b.duration_value for b in measure.beats)
-        if total_duration <= 0:
-            total_duration = len(measure.beats)  # 回退: 均匀分配
+        # 固定间距：每个拍占用相同水平宽度
+        beat_spacing = self.cfg.NOTE_MIN_SPACING
         
         current_x = start_x
-        for beat in measure.beats:
-            # 该拍占用的宽度比例
-            ratio = beat.duration_value / total_duration
-            beat_width = max(int(inner_width * ratio), self.cfg.NOTE_MIN_SPACING)
-            
+        for i, beat in enumerate(measure.beats):
             bl = BeatLayout(beat=beat)
-            bl.x_center = current_x + beat_width // 2
-            bl.x_start = current_x
-            bl.x_end = current_x + beat_width
-            m_layout.beats.append(bl)
             
-            current_x += beat_width
+            if i < len(measure.beats) - 1:
+                # 非最后一个拍：固定间距
+                bl.x_center = current_x + beat_spacing // 2
+                bl.x_start = current_x
+                bl.x_end = current_x + beat_spacing
+                current_x += beat_spacing
+            else:
+                # 最后一个拍：占满剩余空间（避免末端空白过多）
+                measure_inner_width = self._estimate_measure_width(measure)
+                measure_inner_width -= (
+                    self.cfg.MEASURE_PADDING_LEFT + self.cfg.MEASURE_PADDING_RIGHT
+                )
+                last_beat_width = max(
+                    measure_inner_width - (len(measure.beats) - 1) * beat_spacing,
+                    beat_spacing  # 保证至少一个间距的宽度
+                )
+                bl.x_center = current_x + last_beat_width // 2
+                bl.x_start = current_x
+                bl.x_end = current_x + last_beat_width
+                current_x += last_beat_width
+            
+            m_layout.beats.append(bl)
         
         return current_x
 
