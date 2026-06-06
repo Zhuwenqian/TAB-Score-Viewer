@@ -9,11 +9,14 @@
   1. 小节宽度 = 拍数 × 固定间距 + 左右边距（音符越多越宽，有最短长度）
   2. 每两个拍(Beat)之间使用固定水平间距(NOTE_MIN_SPACING)，不按时值比例缩放
   3. 自动换行：当一行放不下更多小节时换到下一行（贪心策略）
+  4. 分页后Y坐标重置: 每页的系统坐标重新计算为相对坐标，
+     避免第2页及之后的内容画在页面底部
 
 依赖库:
   - 内部依赖: gtp_engine.models.*, gtp_engine.utils.constants
 
 创建日期: 2026-06-06
+最后更新: 2026-06-06 (v1.1.2: 移除每系统INFO_SECTION_HEIGHT空白; 重写分页Y坐标重置)
 ============================================================
 """
 
@@ -282,7 +285,10 @@ class TabLayoutEngine:
             # 创建系统布局
             system = SystemLayout()
             system.y_top = current_y
-            system.y_tab_top = current_y + self.cfg.INFO_SECTION_HEIGHT
+            # 注意: 不再为每个系统添加 INFO_SECTION_HEIGHT
+            # 页面头部信息(标题/轨道名/调弦/BPM)只在 _render_page 中绘制一次，
+            # 使用绝对坐标(y=15)，不需要在每个系统前留空白
+            system.y_tab_top = current_y
             system.y_tab_bottom = system.y_tab_top + tab_height
             system.y_bottom = system.y_tab_bottom + self.cfg.STEM_HEIGHT + 8
             
@@ -375,34 +381,56 @@ class TabLayoutEngine:
             page_height: 每页可用高度
             
         返回:
-            PageLayout 列表
+            PageLayout 列表（每个系统中系统的Y坐标已重置为相对于该页顶部）
         """
         if not systems:
             return []
         
-        pages: List[PageLayout] = []
-        current_page = PageLayout(page_number=len(pages) + 1)
-        
-        # 第一页顶部留出边距
+        # 第一步：按高度分组到各页
+        raw_pages: List[List[SystemLayout]] = []
+        current_page_systems: List[SystemLayout] = []
         used_height = self.cfg.PAGE_MARGIN_TOP
         
         for system in systems:
             system_height = system.y_bottom - system.y_top + self.cfg.LINE_SPACING
             
-            # 检查是否需要分页
             if used_height + system_height > page_height - self.cfg.PAGE_MARGIN_BOTTOM:
-                # 当前页已满，保存并创建新页
-                current_page.height = used_height
-                pages.append(current_page)
-                current_page = PageLayout(page_number=len(pages) + 1)
-                used_height = self.cfg.PAGE_MARGIN_TOP
-            
-            current_page.systems.append(system)
-            used_height += system_height
+                if current_page_systems:
+                    raw_pages.append(current_page_systems)
+                current_page_systems = [system]
+                used_height = self.cfg.PAGE_MARGIN_TOP + system_height
+            else:
+                current_page_systems.append(system)
+                used_height += system_height
         
-        # 处理最后一页
-        if current_page.systems:
-            current_page.height = used_height + self.cfg.PAGE_MARGIN_BOTTOM
-            pages.append(current_page)
+        if current_page_systems:
+            raw_pages.append(current_page_systems)
+        
+        # 第二步：为每页重新计算相对Y坐标
+        # 原因: 布局引擎使用连续绝对坐标，分页后需要将每个系统的坐标
+        #       重置为相对于所在页面顶部的位置，否则第2页及之后的系统
+        #       会画在页面底部（因为绝对Y值已超过一页高度）
+        pages: List[PageLayout] = []
+        for page_idx, page_systems in enumerate(raw_pages):
+            page = PageLayout(page_number=len(pages) + 1)
+            current_y = self.cfg.PAGE_MARGIN_TOP
+            
+            for system in page_systems:
+                # 计算该系统的高度偏移量
+                offset_y = current_y - system.y_top
+                
+                # 重置所有Y坐标为相对值
+                system.y_top = current_y
+                system.y_tab_top += offset_y
+                system.y_tab_bottom += offset_y
+                system.y_bottom += offset_y
+                
+                # 同步更新内部小节的X坐标不受影响（X是水平的）
+                
+                current_y = system.y_bottom + self.cfg.SYSTEM_SPACING
+                page.systems.append(system)
+            
+            page.height = current_y + self.cfg.PAGE_MARGIN_BOTTOM
+            pages.append(page)
         
         return pages
