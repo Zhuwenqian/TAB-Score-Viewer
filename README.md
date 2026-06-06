@@ -151,6 +151,8 @@ A powerful Guitar TAB score viewer with multi-format support, auto-scroll playba
 # Activate virtual environment
 .\venv\Scripts\activate   # Windows
 source venv/bin/activate   # Linux/Mac
+#Install requirements
+pip install PyQt5 PyMuPDF Pillow
 
 # Run
 python guitar_tab_viewer.py
