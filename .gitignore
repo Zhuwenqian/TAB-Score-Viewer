@@ -1,3 +1,5 @@
 config/
 data/
 gtp格式-吉他谱全集/
+explore_gp.py
+__pycache__/
