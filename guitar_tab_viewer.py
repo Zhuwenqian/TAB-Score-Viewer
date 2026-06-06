@@ -783,7 +783,7 @@ class AnnotationEditDialog(QDialog):
         """)
         layout=QVBoxLayout(self)
         pg=QGroupBox("位置坐标"); pl=QHBoxLayout(pg)
-        pl.addWidget(QLabel(f"X: {self.annotation.x:.1%}  Y: {self.annotation.y:.1%%}")); layout.addWidget(pg)
+        pl.addWidget(QLabel(f"X: {self.annotation.x:.1%}  Y: {self.annotation.y:.1%}")); layout.addWidget(pg)
         tg=QGroupBox("标注内容"); tl=QVBoxLayout(tg)
         self.text_edit=QTextEdit(); self.text_edit.setPlainText(self.annotation.text)
         self.text_edit.setPlaceholderText("输入演奏技巧说明..."); tl.addWidget(self.text_edit); layout.addWidget(tg)
@@ -812,11 +812,18 @@ class AnnotationEditDialog(QDialog):
 
 
 class AnnotationManagerDialog(QDialog):
-    """标注管理器 - 列表管理所有标注"""
+    """
+    标注管理器 - 列表管理所有标注
+    功能: 新增/编辑/删除标注，支持 Ctrl+Z 撤销 / Ctrl+Y 重做
+    """
     annotationsChanged=pyqtSignal(list)
 
     def __init__(self,parent=None,annotations:List[Annotation]=None):
-        super().__init__(parent); self.annotations=annotations or []; self.init_ui()
+        super().__init__(parent); self.annotations=annotations or []
+        # 撤销/重做栈: 每次修改前保存快照
+        self._undo_stack:List[List[Annotation]]=[]   # 撤销栈(可回退的状态)
+        self._redo_stack:List[List[Annotation]]=[]   # 重做栈(已撤销可恢复)
+        self.init_ui()
 
     def init_ui(self)->None:
         self.setWindowTitle("标注管理器"); self.setMinimumSize(550,400)
@@ -854,30 +861,86 @@ class AnnotationManagerDialog(QDialog):
             item=QListWidgetItem(f"[{a.id}]({a.x:.0%},{a.y:.0%}){pv}")
             item.setData(Qt.UserRole,a.id);self.list_widget.addItem(item)
 
+    # ========== 撤销/重做核心方法 ==========
+    def _save_snapshot(self)->None:
+        """修改前保存当前状态快照到撤销栈"""
+        import copy
+        snapshot=[Annotation(**asdict(a)) for a in self.annotations]
+        self._undo_stack.append(snapshot)
+        self._redo_stack.clear()  # 新操作清空重做栈
+        # 限制撤销深度避免内存膨胀
+        if len(self._undo_stack)>50: self._undo_stack.pop(0)
+
+    def _undo(self)->None:
+        """Ctrl+Z 撤销 - 回退到上一个状态"""
+        if not self._undo_stack: return
+        import copy
+        # 当前状态存入重做栈
+        redo_snap=[Annotation(**asdict(a)) for a in self.annotations]
+        self._redo_stack.append(redo_snap)
+        # 恢复上一个状态
+        prev=self._undo_stack.pop()
+        self.annotations=[Annotation(**asdict(a)) for a in prev]
+        self._populate_list();self.annotationsChanged.emit(self.annotations)
+
+    def _redo(self)->None:
+        """Ctrl+Y 重做 - 恢复被撤销的状态"""
+        if not self._redo_stack: return
+        import copy
+        # 当前状态存入撤销栈
+        undo_snap=[Annotation(**asdict(a)) for a in self.annotations]
+        self._undo_stack.append(undo_snap)
+        # 恢复重做状态
+        nxt=self._redo_stack.pop()
+        self.annotations=[Annotation(**asdict(a)) for a in nxt]
+        self._populate_list();self.annotationsChanged.emit(self.annotations)
+
+    def keyPressEvent(self,event:QKeyEvent)->None:
+        """键盘事件: Ctrl+Z撤销 / Ctrl+Y重做"""
+        try:
+            if event.modifiers()&Qt.ControlModifier:
+                if event.key()==Qt.Key_Z:   self._undo()
+                elif event.key()==Qt.Key_Y:  self._redo()
+                else: super().keyPressEvent(event)
+            else:
+                super().keyPressEvent(event)
+        except Exception:
+            super().keyPressEvent(event)
+
+    # ========== 标注操作(已集成撤销) ==========
     def _add_new(self)->None:
+        self._save_snapshot()  # 修改前保存快照
         dlg=AnnotationEditDialog(self)
         if dlg.exec_()==QDialog.Accepted:
             self.annotations.append(dlg.get_annotation());self._populate_list()
             self.annotationsChanged.emit(self.annotations)
+        else:
+            # 取消则撤销刚才保存的快照
+            if self._undo_stack: self._undo_stack.pop()
 
     def _edit_item(self,item)->None:
         if not item:return
         aid=item.data(Qt.UserRole);ann=next((a for a in self.annotations if a.id==aid),None)
         if ann:
+            self._save_snapshot()  # 修改前保存快照
             dlg=AnnotationEditDialog(self,annotation=ann)
             if dlg.exec_()==QDialog.Accepted:
                 upd=dlg.get_annotation();idx=next(i for i,a in enumerate(self.annotations) if a.id==aid)
                 self.annotations[idx]=upd;self._populate_list();self.annotationsChanged.emit(self.annotations)
+            else:
+                if self._undo_stack: self._undo_stack.pop()
 
     def _delete_item(self)->None:
         item=self.list_widget.currentItem()
         if item:
+            self._save_snapshot()
             aid=item.data(Qt.UserRole)
             self.annotations=[a for a in self.annotations if a.id!=aid];self._populate_list()
             self.annotationsChanged.emit(self.annotations)
 
     def _clear_all(self)->None:
         if QMessageBox.question(self,"确认","清空所有标注?",QMessageBox.Yes|QMessageBox.No)==QMessageBox.Yes:
+            self._save_snapshot()
             self.annotations.clear();self._populate_list();self.annotationsChanged.emit(self.annotations)
 
 
@@ -966,11 +1029,32 @@ class DisplayWidget(QWidget):
         painter.drawEllipse(x-3,y+2,6,6)
 
     def mouseDoubleClickEvent(self,event:QMouseEvent)->None:
-        """双击谱面添加标注"""
+        """双击谱面 - 优先检测是否点击了已有标注(编辑)，否则新建"""
         if not self.parent_window or not self.parent_window.images: return
-        # 计算点击位置对应的相对坐标
         cx,cy=event.x(),event.y()
         ww=self.width()
+
+        # === 先检测是否点击了已有标注(点击范围: 标注文字区域+周围10px) ===
+        if self.parent_window.annotations and ww>20:
+            total_h=sum((img.height()*(ww-20)/img.width())+5 for img in self.parent_window.images if not img.isNull())
+            base_y=-self.parent_window.current_position
+            for ann in self.parent_window.annotations:
+                sx=int(10+(ww-20)*ann.x); sy=int(base_y+total_h*ann.y)
+                # 检测点击是否在标注区域内(基于字体大小估算范围)
+                hit_w=len(ann.text)*ann.font_size//2+20; hit_h=ann.font_size+16
+                if (sx-hit_w<=cx<=sx+hit_w) and (sy-hit_h<=cy<=sy+8):
+                    # 点击到已有标注 → 打开编辑对话框
+                    dlg=AnnotationEditDialog(self,annotation=ann)
+                    if dlg.exec_()==QDialog.Accepted:
+                        updated=dlg.get_annotation()
+                        idx=next((i for i,a in enumerate(self.parent_window.annotations) if a.id==ann.id),None)
+                        if idx is not None:
+                            self.parent_window.annotations[idx]=updated
+                            self.parent_window._save_annotations()
+                            self.set_annotations(self.parent_window.annotations)
+                    return
+
+        # === 未点击到任何标注 → 新建标注 ===
         rel_x=max(0,min(1,(cx-10)/(ww-20))) if ww>20 else 0
         if self.parent_window.images:
             total_h=sum((img.height()*(ww-20)/img.width())+5 for img in self.parent_window.images if not img.isNull())
@@ -1496,6 +1580,7 @@ class SettingsWindow(QMainWindow):
         self._loaded_files:List[Tuple]=[]
 
         self.init_ui()
+        self._apply_theme()  # 应用深色主题
 
         loading_item=QListWidgetItem("正在初始化...")
         loading_item.setFlags(loading_item.flags() & ~Qt.ItemIsEnabled)
@@ -1567,6 +1652,32 @@ class SettingsWindow(QMainWindow):
         main_layout.addWidget(file_list_label)
         main_layout.addLayout(search_layout)
         main_layout.addWidget(self.file_list)
+
+    def _apply_theme(self)->None:
+        """应用深色主题到设置窗口"""
+        self.setStyleSheet(f"""
+            QMainWindow,QWidget{{background-color:{THEME_COLORS['bg_primary']};color:{THEME_COLORS['text_primary']};
+                font-family:'Microsoft YaHei','Segoe UI',sans-serif;}}
+            QLabel{{color:{THEME_COLORS['text_primary']};font-size:13px;}}
+            QPushButton{{background-color:{THEME_COLORS['primary']};color:white;border:none;
+                border-radius:6px;padding:7px 16px;font-weight:500;}}
+            QPushButton:hover{{background-color:{THEME_COLORS['primary_hover']};}}
+            QPushButton:pressed{{background-color:{THEME_COLORS['primary']};}}
+            QLineEdit{{background-color:{THEME_COLORS['bg_surface']};color:{THEME_COLORS['text_primary']};
+                border:1px solid{THEME_COLORS['border']};border-radius:5px;padding:5px 8px;}}
+            QSlider::groove:horizontal{{border:none;height:6px;background:{THEME_COLORS['bg_surface']};border-radius:3px;}}
+            QSlider::handle:horizontal{{background:{THEME_COLORS['primary']};width:16px;margin:-6px 0;border-radius:8px;
+                border:2px solid{THEME_COLORS['bg_primary']};}}
+            QListWidget{{background-color:{THEME_COLORS['bg_surface']};color:{THEME_COLORS['text_primary']};
+                border:1px solid{THEME_COLORS['border']};border-radius:6px;outline:none;}}
+            QListWidget::item{{padding:6px;border-bottom:1px solid{THEME_COLORS['border']};}}
+            QListWidget::item:selected{{background-color:{THEME_COLORS['primary']};color:white;}}
+            QListWidget::item:hover{{background-color:{THEME_COLORS['bg_card']};}}
+            QScrollBar:vertical{{background:{THEME_COLORS['bg_secondary']};width:10px;border-radius:5px;}}
+            QScrollBar::handle:vertical{{background:{THEME_COLORS['border']};border-radius:5px;min-height:30px;}}
+            QScrollBar::handle:vertical:hover{{background:{THEME_COLORS['text_muted']};}}
+            QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0;}}
+        """)
 
     def _load_config_and_restore(self)->None:
         """加载配置并恢复状态"""
