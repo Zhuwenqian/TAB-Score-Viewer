@@ -61,17 +61,23 @@ class GTPTrack:
         """
         获取调弦方案的名称
         返回: 已知调弦返回名称，否则返回自定义描述
+        
+        匹配方式: 遍历所有预设调弦方案，逐一比较元组值。
+                 比字典键方式更健壮，可处理元组子类/类型差异等边界情况。
         """
         from ..utils.constants import StandardTunings
-        tuning_map = {
-            StandardTunings.STANDARD: "标准调弦(EADGBE)",
-            StandardTunings.DROP_D: "Drop D",
-            StandardTunings.OPEN_G: "Open G",
-            StandardTunings.OPEN_D: "Open D",
-            StandardTunings.DADGAD: "DADGAD",
-            StandardTunings.HALF_STEP_DOWN: "降半音",
-        }
-        return tuning_map.get(self.strings, f"自定义调弦({len(self.strings)}弦)")
+        tuning_tuple = self.strings
+        for name, stuning in [
+            ("标准调弦(EADGBE)", StandardTunings.STANDARD),
+            ("Drop D", StandardTunings.DROP_D),
+            ("Open G", StandardTunings.OPEN_G),
+            ("Open D", StandardTunings.OPEN_D),
+            ("DADGAD", StandardTunings.DADGAD),
+            ("降半音", StandardTunings.HALF_STEP_DOWN),
+        ]:
+            if tuning_tuple == stuning:
+                return name
+        return f"自定义调弦({len(self.strings)}弦)"
 
     def get_total_beats(self) -> int:
         """获取该轨道所有小节的总拍数"""

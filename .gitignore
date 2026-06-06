@@ -3,3 +3,5 @@ data/
 gtp格式-吉他谱全集/
 explore_gp.py
 __pycache__/
+gtp_engine/models/__pycache__/
+gtp_engine/models/__pycache__/track.cpython-313.pyc
