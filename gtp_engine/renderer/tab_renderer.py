@@ -326,6 +326,10 @@ class TabRenderer:
           Y坐标 = y_tab_top + string_index × TAB_LINE_SPACING
                  （string_index: 0=1弦顶线, 5=6弦底线）
           X坐标 = cx（拍的中心位置）
+        
+        文字居中策略: 让文字的视觉中心对齐到弦线位置，
+                     避免品格数字超出六线谱区域（尤其是底部弦）。
+                     公式: baseline = line_y - height/2 + ascent
         """
         # 计算Y坐标：弦索引越大越靠下（1弦在最上面）
         y = system.y_tab_top + note.string * self.cfg.TAB_LINE_SPACING
@@ -343,12 +347,12 @@ class TabRenderer:
         # 获取显示文本
         display_text = note.get_display_fret()
         
-        # 居中绘制：文字中心对齐到cx
+        # 居中绘制：文字中心对齐到弦线Y位置
         fm = QFontMetrics(font)
         text_width = fm.horizontalAdvance(display_text)
         text_x = cx - text_width // 2
-        # 微调Y使文字基线与弦线对齐
-        text_y = y + fm.ascent() // 2 - 2
+        # 垂直居中：文字视觉中心对齐弦线，避免底部弦文字溢出
+        text_y = y - fm.height() // 2 + fm.ascent()
         
         painter.drawText(QPoint(text_x, text_y), display_text)
 

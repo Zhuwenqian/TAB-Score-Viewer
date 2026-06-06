@@ -5,3 +5,5 @@ explore_gp.py
 __pycache__/
 gtp_engine/models/__pycache__/
 gtp_engine/models/__pycache__/track.cpython-313.pyc
+gtp_engine/renderer/__pycache__/tab_renderer.cpython-313.pyc
+gtp_engine/parser/__pycache__/gtp_parser.cpython-313.pyc

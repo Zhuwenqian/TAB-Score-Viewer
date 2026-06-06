@@ -16,6 +16,7 @@
            8. 深色主题UI + 自定义组件(按钮/滑块/进度条)
            9. 键盘快捷键 - 空格播放暂停/方向键调速/ESC关闭
           10. GTP文件完整渲染 - 基于gtp_engine库解析并渲染为六线谱图像
+          11. 右键打开文件位置 - 文件列表右键菜单支持在资源管理器中定位文件
 
 创建日期: 2026-06-06
 最后修改: 2026-06-06
@@ -1986,7 +1987,7 @@ class SettingsWindow(QMainWindow):
                 self.show_display(fpath,'gtp')
 
     def show_context_menu(self,pos:QPoint)->None:
-        """右键菜单"""
+        """右键菜单 - 支持查看/播放/打开文件位置等操作"""
         item=self.file_list.itemAt(pos)
         if not item:return
         fpath=item.data(Qt.UserRole);is_dir=item.data(Qt.UserRole+1) or False
@@ -1994,6 +1995,8 @@ class SettingsWindow(QMainWindow):
         if is_dir:
             menu.addAction('播放此文件夹中所有图片',lambda:self.play_all_images(fpath))
             menu.addAction('进入文件夹',lambda:self.on_file_double_clicked(item))
+            menu.addSeparator()
+            menu.addAction('在资源管理器中打开',lambda:self.open_file_location(fpath))
         else:
             menu.addAction('查看文件',lambda:self.on_file_double_clicked(item))
             ext=os.path.splitext(fpath)[1].lower()
@@ -2001,7 +2004,42 @@ class SettingsWindow(QMainWindow):
                 menu.addAction('播放当前图片',lambda:self.show_display([fpath],'images'))
                 src=self.original_items if not self.is_searching else []
                 menu.addAction('播放全部图片',lambda:self.play_all_images(os.path.dirname(fpath)))
+            menu.addSeparator()
+            # 通用：任何文件都可在资源管理器中定位
+            menu.addAction('在资源管理器中打开',lambda:self.open_file_location(fpath))
         menu.exec_(self.file_list.mapToGlobal(pos))
+
+    def open_file_location(self,fpath:str)->None:
+        """
+        在系统文件资源管理器中打开并选中指定文件/文件夹
+        
+        原理: 调用系统命令定位到文件
+          Windows: explorer /select,"路径"
+          Linux:   xdg-open 或 nautilus --select "路径"
+        
+        参数:
+            fpath: 要定位的文件或文件夹的绝对路径
+        """
+        import subprocess, platform
+        try:
+            if platform.system() == 'Windows':
+                # Windows: explorer /select 会打开文件夹并高亮选中该文件
+                subprocess.run(['explorer', '/select,', fpath], check=False)
+            elif platform.system() == 'Linux':
+                # Linux: 尝试多种文件管理器
+                for cmd in [
+                    ['xdg-open', os.path.dirname(fpath)],
+                    ['nautilus', '--select', fpath],
+                    ['dolphin', '--select', fpath],
+                    ['thunar', fpath],
+                ]:
+                    try:
+                        subprocess.run(cmd, check=False, timeout=3)
+                        break
+                    except (FileNotFoundError, subprocess.TimeoutExpired):
+                        continue
+        except Exception as e:
+            QMessageBox.warning(self,'无法打开',f'无法打开文件位置:\n{str(e)}')
 
     def play_all_images(self,directory:str)->None:
         """播放文件夹内所有图片"""

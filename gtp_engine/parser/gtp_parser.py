@@ -209,7 +209,7 @@ class GTPParser:
         
         note = GTPNote(
             midi_pitch=raw_note.realValue,     # 实际MIDI音高
-            string=raw_note.string,             # 弦号(0-based)
+            string=raw_note.string - 1,         # 弦号(PyGuitarPro是1-based, 转为0-based: 0=1弦顶线, 5=6弦底线)
             fret=raw_note.value,                 # 品格数
             velocity=raw_note.velocity,          # 力度
             duration=duration,
