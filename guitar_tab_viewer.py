@@ -2,25 +2,36 @@
 """
 ============================================================
 文件名: guitar_tab_viewer.py
-功能描述: 万能吉他谱查看器 - 支持多格式查看、播放、标注
-         支持格式: PNG, JPG, JPEG, WEBP, PDF, GP3/GP4/GP5/GPX(GTP)
+功能描述: 万能吉他谱查看器(TAB Score Viewer) - 支持多格式查看、播放、标注
+         支持格式: PNG, JPG, JPEG, WEBP(图片), PDF(文档), GP3/GP4/GP5/GPX(GTP吉他谱)
+
          核心功能:
-           - 多格式吉他谱查看与自动滚动播放
-           - 可拖动进度条 + 循环播放(全局/区域A-B)
-           - 速度曲线编辑器(图片/PDF格式)
-           - 谱面文本标注系统(任意位置添加演奏技巧说明)
-           - 深色主题UI + 响应式布局
+           1. 多格式吉他谱查看与自动滚动播放
+           2. 可拖动进度条 + 循环播放(不循环/全局循环/区域A-B循环)
+           3. 速度曲线编辑器 - 贝塞尔曲线可视化编辑，含预设模板(图片/PDF格式)
+           4. 谱面文本标注系统 - 双击任意位置添加演奏技巧说明，支持样式自定义
+           5. 标注管理器 - 批量管理，Ctrl+Z撤销/Ctrl+Y重做(最多50步)
+           6. 页码导航 - PDF/多图模式底部页码输入框直接跳转
+           7. 鼠标滚轮滚动 - 支持Ctrl加速/Shift精细控制
+           8. 深色主题UI + 自定义组件(按钮/滑块/进度条)
+           9. 键盘快捷键 - 空格播放暂停/方向键调速/ESC关闭
 
 创建日期: 2026-06-06
 最后修改: 2026-06-06
-依赖库:
-  - PyQt5 >= 5.15 (GUI框架)
-  - PyMuPDF (fitz) >= 1.27 (PDF解析)
-  - Pillow >= 10.0 (图片处理，含WEBP支持)
-  - numpy >= 1.24 (数值计算)
 
-技术栈: Python 3.10+ / PyQt5
-兼容性: Windows / Linux / Docker (相对路径)
+依赖库:
+  - PyQt5 >= 5.15     # GUI框架(窗口/控件/信号槽/绘图)
+  - PyMuPDF >= 1.23   # PDF解析与页面渲染为图片 (开源项目: Artifex Software)
+  - Pillow >= 10.0    # 图片处理(PNG/JPG/WEBP解码) (开源项目: Python Imaging Library)
+
+技术栈: Python 3.8+ / PyQt5 / PyMuPDF / Pillow
+兼容性: Windows / Linux / Docker (所有路径使用相对路径)
+
+项目结构:
+  guitar_tab_viewer.py   - 主程序(本文件)
+  config/settings.json   - 用户配置(运行时自动生成)
+  data/annotations/      - 标注数据存储(JSON格式)
+  readme/                - 项目文档目录
 ============================================================
 """
 
@@ -988,8 +999,8 @@ class DisplayWidget(QWidget):
             step = 10   # Shift+滚轮精细滚动
         # 向上滚(正值)=减小position(内容上移/视口下移)
         self.parent_window.current_position -= (step if delta > 0 else -step)
-        # 限制范围
-        max_pos = max(0, self.parent_window.total_scroll_distance - self.height())
+        # 限制范围(与_calculate_total_distance一致，使用display_widget高度)
+        max_pos = max(0, self.parent_window.total_scroll_distance)
         self.parent_window.current_position = max(0, min(self.parent_window.current_position, max_pos))
         self.parent_window.update_progress_display()
         self.update()
@@ -1450,7 +1461,10 @@ class DisplayWindow(QMainWindow):
         self.scroll_step=max(0.3,min(8.0,200.0/speed_ms))
 
     def _calculate_total_distance(self)->None:
-        """计算总可滚动距离"""
+        """计算总可滚动距离
+        原理: 总内容高度 - 显示区域高度 = 最大可滚动距离
+        播放结束条件: current_position >= total_scroll_distance 时，末页底部刚好到达显示区底部
+        """
         if not self.images:return
         ww=self.width()
         total=0
@@ -1458,7 +1472,9 @@ class DisplayWindow(QMainWindow):
             if not img.isNull():
                 sw=ww-20;ratio=img.width()>0 and sw/img.width() or 1
                 total+=img.height()*ratio+5
-        self.total_scroll_distance=max(0,total-self.height())
+        # 使用display_widget的实际高度(不含工具栏/控制面板)，确保末页底部到达显示区底部时停止
+        display_h=self.display_widget.height()
+        self.total_scroll_distance=max(0,total-display_h)
         # 更新时间估算
         secs=int(self.total_scroll_distance/self.scroll_step/60) if self.scroll_step>0 else 0
         self.time_end_label.setText(f"{secs//60:02d}:{secs%60:02d}")
@@ -1495,7 +1511,7 @@ class DisplayWindow(QMainWindow):
                 if img.isNull(): continue
                 ratio=img.width()>0 and ww/img.width() or 1
                 h=img.height()*ratio+5
-                if offset+h>=self.current_position:
+                if offset+h>self.current_position:
                     current_page=i+1; break
                 offset+=h
             else:
