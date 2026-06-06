@@ -28,6 +28,7 @@ import sys
 import os
 import json
 import math
+import copy
 import uuid
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass, field
@@ -864,7 +865,6 @@ class AnnotationManagerDialog(QDialog):
     # ========== 撤销/重做核心方法 ==========
     def _save_snapshot(self)->None:
         """修改前保存当前状态快照到撤销栈"""
-        import copy
         snapshot=[Annotation(**asdict(a)) for a in self.annotations]
         self._undo_stack.append(snapshot)
         self._redo_stack.clear()  # 新操作清空重做栈
@@ -874,7 +874,6 @@ class AnnotationManagerDialog(QDialog):
     def _undo(self)->None:
         """Ctrl+Z 撤销 - 回退到上一个状态"""
         if not self._undo_stack: return
-        import copy
         # 当前状态存入重做栈
         redo_snap=[Annotation(**asdict(a)) for a in self.annotations]
         self._redo_stack.append(redo_snap)
@@ -886,7 +885,6 @@ class AnnotationManagerDialog(QDialog):
     def _redo(self)->None:
         """Ctrl+Y 重做 - 恢复被撤销的状态"""
         if not self._redo_stack: return
-        import copy
         # 当前状态存入撤销栈
         undo_snap=[Annotation(**asdict(a)) for a in self.annotations]
         self._undo_stack.append(undo_snap)
@@ -915,8 +913,8 @@ class AnnotationManagerDialog(QDialog):
             self.annotations.append(dlg.get_annotation());self._populate_list()
             self.annotationsChanged.emit(self.annotations)
         else:
-            # 取消则撤销刚才保存的快照
-            if self._undo_stack: self._undo_stack.pop()
+            # 取消则撤销刚才保存的快照，恢复状态
+            if self._undo_stack: self._undo()
 
     def _edit_item(self,item)->None:
         if not item:return
@@ -928,7 +926,8 @@ class AnnotationManagerDialog(QDialog):
                 upd=dlg.get_annotation();idx=next(i for i,a in enumerate(self.annotations) if a.id==aid)
                 self.annotations[idx]=upd;self._populate_list();self.annotationsChanged.emit(self.annotations)
             else:
-                if self._undo_stack: self._undo_stack.pop()
+                # 取消则撤销刚才保存的快照，恢复状态
+                if self._undo_stack: self._undo()
 
     def _delete_item(self)->None:
         item=self.list_widget.currentItem()
@@ -968,6 +967,33 @@ class DisplayWidget(QWidget):
 
     def set_annotations(self, annotations: List[Annotation]) -> None:
         self.annotations = annotations; self.update()
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        """
+        鼠标滚轮事件 - 滚动谱面位置
+        原理: 滚轮每滚动一个单位(delta)，按比例调整 current_position
+        方向: 向上滚=向上翻(减小position), 向下滚=向下翻(增大position)
+        """
+        if not self.parent_window or not self.parent_window.images:
+            event.ignore(); return
+        # 获取滚轮滚动量 (angleDelta().y() 正值=向上, 负值=向下)
+        delta = event.angleDelta().y()
+        if delta == 0:
+            event.ignore(); return
+        # 每次滚动移动的距离: 默认30px，可配合Ctrl加速
+        step = 30
+        if event.modifiers() & Qt.ControlModifier:
+            step = 100  # Ctrl+滚轮快速滚动
+        if event.modifiers() & Qt.ShiftModifier:
+            step = 10   # Shift+滚轮精细滚动
+        # 向上滚(正值)=减小position(内容上移/视口下移)
+        self.parent_window.current_position -= (step if delta > 0 else -step)
+        # 限制范围
+        max_pos = max(0, self.parent_window.total_scroll_distance - self.height())
+        self.parent_window.current_position = max(0, min(self.parent_window.current_position, max_pos))
+        self.parent_window.update_progress_display()
+        self.update()
+        event.accept()
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
@@ -1253,8 +1279,32 @@ class DisplayWindow(QMainWindow):
         return panel
 
     def _create_bottom_bar(self)->QHBoxLayout:
-        """创建底部进度条栏"""
+        """创建底部进度条栏 - 含页码输入(多图/PDF时显示)"""
         bar=QHBoxLayout();bar.setSpacing(10)
+
+        # ===== 页码导航区 (多图/PDF模式) =====
+        self.page_widget=QWidget()
+        self.page_widget.setVisible(False)  # 默认隐藏，加载内容后根据图片数量决定
+        pg_layout=QHBoxLayout(self.page_widget)
+        pg_layout.setContentsMargins(0,0,0,0);pg_layout.setSpacing(4)
+
+        self.page_input=QSpinBox()
+        self.page_input.setRange(1,9999)
+        self.page_input.setMinimumWidth(50)
+        self.page_input.setAlignment(Qt.AlignCenter)
+        self.page_input.setStyleSheet(f"background-color:{THEME_COLORS['bg_surface']};color:{THEME_COLORS['text_primary']};border:1px solid{THEME_COLORS['border']};border-radius:4px;padding:2px;")
+        self.page_input.valueChanged.connect(self._on_page_jump)
+        pg_layout.addWidget(self.page_input)
+
+        self.page_total_label=QLabel("/ 1")
+        self.page_total_label.setStyleSheet(f"color:{THEME_COLORS['text_muted']};font-size:12px;")
+        pg_layout.addWidget(self.page_total_label)
+
+        pg_layout.addStretch()
+
+        bar.addWidget(self.page_widget)
+
+        # ===== 时间/进度条 =====
         self.time_start_label=QLabel("00:00")
         bar.addWidget(self.time_start_label)
 
@@ -1266,6 +1316,34 @@ class DisplayWindow(QMainWindow):
         self.time_end_label=QLabel("--:--")
         bar.addWidget(self.time_end_label)
         return bar
+
+    def _update_page_display(self)->None:
+        """更新页码显示 - 多图或PDF时显示页码控件"""
+        if not self.images or len(self.images)<=1:
+            self.page_widget.setVisible(False); return
+        total=len(self.images)
+        self.page_input.setRange(1,total)
+        self.page_total_label.setText(f"/ {total}")
+        self.page_widget.setVisible(True)
+
+    def _on_page_jump(self,page:int)->None:
+        """
+        跳转到指定页
+        原理: 根据页码索引计算该页顶部在总滚动距离中的位置，设置current_position
+        """
+        if not self.images or len(self.images)<=1:return
+        ww=self.display_widget.width()-20
+        # 计算目标页之前所有页面的累计高度
+        target_idx=max(0,min(page-1,len(self.images)-1))
+        offset=0.0
+        for i in range(target_idx):
+            img=self.images[i]
+            if img.isNull(): continue
+            ratio=img.width()>0 and ww/img.width() or 1
+            offset+=img.height()*ratio+5
+        self.current_position=offset
+        self.update_progress_display()
+        self.display_widget.update()
 
     # ========== 内容加载 ==========
 
@@ -1290,6 +1368,7 @@ class DisplayWindow(QMainWindow):
         self.display_widget.set_annotations(self.annotations)
         self._calculate_total_distance()
         self.update_progress_display()
+        self._update_page_display()  # 更新页码显示
 
     def _on_content_load_error(self,msg:str)->None:
         """加载失败回调"""
@@ -1396,7 +1475,7 @@ class DisplayWindow(QMainWindow):
         return False
 
     def update_progress_display(self)->None:
-        """更新进度显示"""
+        """更新进度显示 - 含页码同步"""
         if self.total_scroll_distance>0:
             pct=(self.current_position/self.total_scroll_distance)*100
         else:
@@ -1407,6 +1486,23 @@ class DisplayWindow(QMainWindow):
         self.progress_bar.blockSignals(False)
         secs=int(self.play_time)
         self.time_start_label.setText(f"{secs//60:02d}:{secs%60:02d}")
+
+        # 同步页码输入框(避免循环触发信号)
+        if hasattr(self,'page_input') and self.images and len(self.images)>1:
+            ww=self.display_widget.width()-20
+            offset=0.0;current_page=1
+            for i,img in enumerate(self.images):
+                if img.isNull(): continue
+                ratio=img.width()>0 and ww/img.width() or 1
+                h=img.height()*ratio+5
+                if offset+h>=self.current_position:
+                    current_page=i+1; break
+                offset+=h
+            else:
+                current_page=len(self.images)
+            self.page_input.blockSignals(True)
+            self.page_input.setValue(current_page)
+            self.page_input.blockSignals(False)
 
     # ========== 事件处理 ==========
 
