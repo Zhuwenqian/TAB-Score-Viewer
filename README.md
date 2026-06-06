@@ -121,7 +121,7 @@ Pillow>=10.0     # 图片格式支持(WEBP等)
 
 ## 许可证
 
-MIT License
+MPL 2.0
 
 ---
 
@@ -178,4 +178,4 @@ python guitar_tab_viewer.py
 
 ## License
 
-MIT
+MPL 2.0
