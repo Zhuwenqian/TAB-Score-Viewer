@@ -170,7 +170,16 @@ class LoadFileListWorker(QRunnable):
         self._result: List[Tuple] = []
 
     def run(self) -> None:
+        """异步扫描文件夹 - 过滤支持的文件格式"""
         try:
+            # 预检查: 目录不存在或不可访问时立即返回错误
+            if not os.path.exists(self.folder):
+                self.signals.error.emit(f"目录不存在: {self.folder}"); return
+            if not os.path.isdir(self.folder):
+                self.signals.error.emit(f"路径不是文件夹: {self.folder}"); return
+            if not os.access(self.folder, os.R_OK):
+                self.signals.error.emit(f"无权限访问目录: {self.folder}"); return
+
             file_items = []
             for file in os.listdir(self.folder):
                 file_path = os.path.join(self.folder, file)
@@ -182,6 +191,10 @@ class LoadFileListWorker(QRunnable):
                     file_items.append((file, file_path, False))
             self._result = sorted(file_items, key=lambda x: (not x[2], x[0]))
             self.signals.finished.emit(self._result)  # 携带文件列表数据
+        except PermissionError:
+            self.signals.error.emit(f"无权限访问目录: {self.folder}")
+        except OSError as e:
+            self.signals.error.emit(f"访问目录出错: {e}")
         except Exception as e:
             self.signals.error.emit(str(e))
 
@@ -1380,6 +1393,8 @@ class DisplayWindow(QMainWindow):
         self._calculate_total_distance()
         self.update_progress_display()
         self._update_page_display()  # 更新页码显示
+        # 延迟重算: 确保窗口布局完成后再精确计算一次总滚动距离
+        QTimer.singleShot(200,self._calculate_total_distance)
 
     def _on_content_load_error(self,msg:str)->None:
         """加载失败回调"""
@@ -1466,14 +1481,18 @@ class DisplayWindow(QMainWindow):
         播放结束条件: current_position >= total_scroll_distance 时，末页底部刚好到达显示区底部
         """
         if not self.images:return
-        ww=self.width()
+        # 必须使用 display_widget 的宽度(与 paintEvent 绘制时一致)，而非 DisplayWindow 的宽度
+        ww=self.display_widget.width()
         total=0
         for img in self.images:
             if not img.isNull():
                 sw=ww-20;ratio=img.width()>0 and sw/img.width() or 1
                 total+=img.height()*ratio+5
-        # 使用display_widget的实际高度(不含工具栏/控制面板)，确保末页底部到达显示区底部时停止
+        # 使用display_widget的实际高度(不含工具栏/控制面板)
+        # 安全检查: 如果display_widget尚未完成布局(height过小)，使用窗口高度估算
         display_h=self.display_widget.height()
+        if display_h<100:  # 布局未完成时的兜底值
+            display_h=self.height()*2//3  # 估算显示区约占窗口高度的2/3
         self.total_scroll_distance=max(0,total-display_h)
         # 更新时间估算
         secs=int(self.total_scroll_distance/self.scroll_step/60) if self.scroll_step>0 else 0
@@ -1792,7 +1811,7 @@ class SettingsWindow(QMainWindow):
         """)
 
     def _load_config_and_restore(self)->None:
-        """加载配置并恢复状态"""
+        """加载配置并恢复状态 - 包含目录有效性检查"""
         try:
             self.load_config()
             if hasattr(self,'last_speed'):
@@ -1802,10 +1821,17 @@ class SettingsWindow(QMainWindow):
                 self.speed_slider.setRange(self.min_range,self.max_range)
                 self.min_speed_edit.setText(str(self.min_range))
                 self.max_speed_edit.setText(str(self.max_range))
+            # 恢复上次打开的文件夹(带完整性检查)
             if hasattr(self,'last_folder') and self.last_folder:
-                self.current_directory=self.last_folder
-                self.folder_label.setText(self.last_folder)
-                self.load_file_list_async(self.last_folder)
+                if os.path.isdir(self.last_folder) and os.access(self.last_folder, os.R_OK):
+                    self.current_directory=self.last_folder
+                    self.folder_label.setText(self.last_folder)
+                    self.load_file_list_async(self.last_folder)
+                else:
+                    # 目录不存在或不可访问 - 清除无效记录并提示用户
+                    print(f"提示: 上次目录不可用({self.last_folder})，请重新选择")
+                    self.last_folder=''
+                    self.save_config()  # 清除无效路径
         except Exception as e:
             print(f"恢复配置出错: {e}")
 
@@ -1877,9 +1903,18 @@ class SettingsWindow(QMainWindow):
             self.file_list.addItem(item);self.original_items.append((name,fpath,is_dir))
 
     def _on_files_error(self,msg:str)->None:
-        """加载错误"""
+        """加载错误处理 - 区分目录错误与一般错误"""
         self.is_loading=False;self.file_list.clear()
-        QMessageBox.critical(self,"加载错误",f"加载失败:\n{msg}")
+        # 添加空状态提示
+        empty_item=QListWidgetItem("文件夹为空或无法访问");empty_item.setFlags(empty_item.flags()&~Qt.ItemIsEnabled)
+        self.file_list.addItem(empty_item)
+        # 根据错误类型给出不同提示
+        if "目录不存在" in msg or "路径不是文件夹" in msg:
+            QMessageBox.warning(self,"目录不可用",f"{msg}\n\n请点击「选择文件夹」重新选择。")
+        elif "无权限" in msg:
+            QMessageBox.warning(self,"权限不足",f"{msg}\n\n请检查文件夹权限或选择其他目录。")
+        else:
+            QMessageBox.critical(self,"加载错误",f"加载失败:\n{msg}")
 
     def _update_speed_value(self,value:int)->None:
         """速度值改变"""
