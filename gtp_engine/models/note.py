@@ -17,6 +17,50 @@ from ..utils.constants import TechniqueType, NoteDuration
 
 
 @dataclass
+class BendData:
+    """
+    推弦(Bend)详细数据 - 存储从GTP文件解析的完整推弦信息
+    
+    属性说明:
+      bend_type:    推弦类型 ('bend'=普通推弦, 'bendRelease'=推弦+释放)
+      value:        推弦量(四分之一音为单位): 25=1/4, 50=1/2, 75=3/4, 100=Full
+      max_value:    推弦峰值(四分之一音为单位)
+      points:       曲线点列表 [(position, value), ...]
+                    position: 时间位置(0-12, 相对该拍的比例)
+                    value: 音高偏移(四分之一音)
+      has_release:  是否有释放段(终点value < 峰值)
+    
+    调用来源: guitarpro库的BendEffect对象 (开源项目 guitarpro)
+    """
+    bend_type: str = "bend"           # 推弦类型
+    value: int = 0                    # 推弦量
+    max_value: int = 0                # 峰值
+    points: list = field(default_factory=list)  # [(pos, val, vibrato), ...]
+    
+    @property
+    def has_release(self) -> bool:
+        """是否有释放段（终点value低于峰值）"""
+        if not self.points:
+            return False
+        last_val = self.points[-1][1] if isinstance(self.points[-1], tuple) else getattr(self.points[-1], 'value', 0)
+        return last_val < self.max_value and self.max_value > 0
+    
+    def get_display_text(self) -> str:
+        """
+        获取推弦度数显示文字
+        
+        返回值映射:
+          25  → "1/4"
+          50  → "1/2"  
+          75  → "3/4"
+          100 → "Full"
+          其他 → "Full"(默认)
+        """
+        mapping = {25: "1/4", 50: "1/2", 75: "3/4", 100: "Full"}
+        return mapping.get(self.max_value, "Full")
+
+
+@dataclass
 class GTPNote:
     """
     单个音符的数据模型
@@ -30,6 +74,7 @@ class GTPNote:
       duration:      时值类型 (NoteDuration枚举)
       is_dotted:     是否附点音符 (附点时值 = 原时值 × 1.5)
       techniques:    演奏技巧列表 (可扩展, 支持叠加多个技巧)
+      bend:          推弦详细数据 (BendData对象, 含类型/度数/曲线点)
       is_ghost:      是否幽灵音(建议弹奏但不强调)
       is_rest:       是否休止符
     """
@@ -41,6 +86,7 @@ class GTPNote:
     duration: NoteDuration = NoteDuration.QUARTER  # 时值
     is_dotted: bool = False          # 是否附点
     techniques: List[TechniqueType] = field(default_factory=list)  # 技巧列表
+    bend: Optional[BendData] = None   # 推弦详细数据(仅推弦音符有值)
     is_ghost: bool = False           # 幽灵音标记
     is_rest: bool = False            # 休止符标记
 

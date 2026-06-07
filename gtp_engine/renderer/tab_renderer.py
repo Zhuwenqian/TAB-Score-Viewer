@@ -33,7 +33,7 @@
   - 内部依赖: gtp_engine.models.*, layout_engine.*, utils.constants
 
 创建日期: 2026-06-06
-最后更新: 2026-06-07 (v1.2.1: P.M./Let Ring GP5格式虚线+停止竖线| + strict断开模式)
+最后更新: 2026-06-07 (v1.2.2: GP5格式推弦渲染+休止符规则优化+空小节过滤)
 ============================================================
 """
 
@@ -455,17 +455,28 @@ class TabRenderer:
         cx = b_layout.x_center  # 该拍的中心X坐标
         
         # --- 休止符处理 ---
-        # 仅当满足以下条件时才绘制休止符符号:
-        #   1. 是真正的休止拍(is_rest=True 且无音符)
-        #   2. 不是小节末尾的填充空拍（GTP文件常在每小节末尾添加空拍填满时值，
-        #      这些填充空拍不应显示为可见的休止符符号，避免视觉混乱）
+        # 休止符渲染规则（严格参照 Guitar Pro 5 的六线谱行为）:
+        #   规则1: 完全空的小节（所有拍都是休止符，无任何音符）→ 不画任何休止符
+        #          GP5中空小节完全空白，只有小节线
+        #   规则2: 有音符的小节中的休止拍 → 仅绘制有意义的休止符
+        #          （排除末尾填充空拍：最后1个拍且时值≥四分音符）
+        #   规则3: 全休止符/二分休止符 → 改用细线框样式（避免填充矩形看起来像□）
         if beat.is_rest and not beat.notes:
-            # 检查是否为有意义的休止符（非末尾填充）
-            # 策略：如果该拍的时值较短(<=四分音符)或该小节中后续还有其他音符拍，
-            #       则认为是有意义的休止符；否则跳过（可能是填充空拍）
+            # === 规则1: 检查整个小节是否完全为空（无任何音符）===
+            is_empty_measure = True
+            if m_layout and m_layout.beats:
+                for other_bl in m_layout.beats:
+                    if other_bl.beat.notes:  # 只要有一个拍包含音符
+                        is_empty_measure = False
+                        break
+            
+            # 空小节完全不画休止符
+            if is_empty_measure:
+                return
+            
+            # === 规则2: 检查是否为末尾填充空拍 ===
             is_meaningful_rest = True
             if m_layout and m_layout.beats:
-                # 获取该拍在小节中的索引
                 try:
                     beat_idx = m_layout.beats.index(b_layout)
                     # 如果是小节最后一个拍，且时值为四分或更长 → 可能是填充
@@ -575,7 +586,7 @@ class TabRenderer:
             
             # --- 推弦：弧线箭头 ---
             elif tech == TechniqueType.BEND:
-                self._draw_bend_indicator(painter, cx, y_base, system)
+                self._draw_bend_indicator(painter, note, cx, y_base, system)
             
             # --- 颤音：波浪线 ---
             elif tech == TechniqueType.VIBRATO:
@@ -674,45 +685,133 @@ class TabRenderer:
         painter.drawLine(start_x, y_base, target_cx - 4, end_y)
 
     def _draw_bend_indicator(self, painter: QPainter,
-                              cx: int, y_base: int, 
+                              note, cx: int, y_base: int,
                               system: SystemLayout) -> None:
         """
-        绘制推弦指示器：在音符上方画一个向上的弧线箭头
+        绘制推弦指示器 - 严格参照 Guitar Pro 5 的推弦记谱格式
         
-        原理: 推弦(bend)通过将弦推向/拉向来升高音高。
-              标准记谱法中用向上弯曲的箭头+度数标注(如"Full"、"1/2")。
-              六线谱简化为：弧线箭头 + "B"文字。
+        GP5 推弦格式（3种类型）:
+          类型1(完整推+释放):  "1/4"文字 + 上弧线↑ + 下弧线↓ 回到原位
+          类型2(仅推弦):      "1/4"文字 + 上弧线↑ (不回)
+          类型3(推+保持+释放): "1/2"文字 + 上弧线↑ + 虚线横线 + ↓
+        
+        视觉特征:
+          - 度数文字("1/4"/"1/2"/"Full")在弧线上方居中显示
+          - 弧线从品格数字下方开始，向上弯曲
+          - 峰值处有向上箭头(▲)
+          - 有释放时末端有向下箭头(▼)或虚线段
         
         参数:
+            note:    音符对象(含bend属性:BendData)
             cx:      拍中心X坐标
             y_base:  弦线Y坐标
             system:  系统布局
+        
+        数据来源: note.bend (BendData对象, 从GTP文件解析的BendEffect)
+        """
+        # 获取推弦数据
+        bend = getattr(note, 'bend', None)
+        if not bend or not bend.points:
+            # 无详细数据时用简单渲染(向后兼容)
+            self._draw_bend_simple(painter, cx, y_base, system)
+            return
+        
+        pen = QPen(QColor(self.cfg.COLOR_TECHNIQUE), 1.5)
+        painter.setPen(pen)
+        
+        # === 布局参数 ===
+        text = bend.get_display_text()  # "1/4", "1/2", "Full"
+        
+        # 弧线起点：品格数字下方偏左
+        start_x = cx - 6
+        start_y = y_base + 6
+        
+        # 弧线高度（根据推弦量动态调整）
+        arc_height_map = {25: 14, 50: 18, 75: 22, 100: 26}  # px高度
+        arc_h = arc_height_map.get(bend.max_value, 20)
+        
+        # 弧线总宽度
+        total_w = 16  # 基础宽度(px)，调整效果: 增大则弧线更宽更平缓
+        
+        # 峰值点坐标
+        peak_x = start_x + total_w * 0.45
+        peak_y = start_y - arc_h
+        
+        # 终点坐标
+        end_x = start_x + total_w
+        end_y = start_y if bend.has_release else peak_y  # 有释放则回到起点Y
+        
+        # === 1. 绘制度数文字（在弧线上方）===
+        font = QFont(self.cfg.NOTE_FONT_FAMILY, 7)
+        painter.setFont(font)
+        fm = QFontMetrics(font)
+        tw = fm.horizontalAdvance(text)
+        text_x = peak_x - tw // 2
+        text_y = peak_y - 8  # 文字在峰值上方
+        painter.drawText(QPoint(int(text_x), int(text_y)), text)
+        
+        # === 2. 绘制上弯弧线（从起点到峰值）===
+        from PyQt5.QtGui import QPainterPath
+        path = QPainterPath()
+        path.moveTo(start_x, start_y)
+        # 二次贝塞尔曲线：控制点在起止点连线的上方中点
+        ctrl_x = (start_x + peak_x) / 2
+        ctrl_y = min(start_y, peak_y) - arc_h * 0.3  # 控制点略高于峰值
+        path.quadTo(ctrl_x, ctrl_y, peak_x, peak_y)
+        painter.drawPath(path)
+        
+        # === 3. 在峰值处画向上箭头 ▲ ===
+        arr_size = 4  # 箭头大小(px)
+        painter.drawLine(int(peak_x), int(peak_y),
+                        int(peak_x - arr_size), int(peak_y + arr_size * 0.8))
+        painter.drawLine(int(peak_x), int(peak_y),
+                        int(peak_x + arr_size), int(peak_y + arr_size * 0.8))
+        
+        # === 4. 如果有释放段，绘制下弯弧线或虚线+下箭头 ===
+        if bend.has_release:
+            # 判断释放方式：如果终点接近起点Y值 → 用平滑回曲线(Image1风格)
+            # 否则用虚线横线+下箭头(Image3风格)
+            release_path = QPainterPath()
+            release_path.moveTo(peak_x, peak_y)
+            
+            # 用二次贝塞尔曲线绘制释放段（从峰值回落到终点）
+            r_ctrl_x = (peak_x + end_x) / 2
+            r_ctrl_y = min(peak_y, end_y) - arc_h * 0.15  # 释放段控制点较平
+            release_path.quadTo(r_ctrl_x, r_ctrl_y, end_x, end_y)
+            painter.drawPath(release_path)
+            
+            # 在终点处画向下箭头 ▼
+            painter.drawLine(int(end_x), int(end_y),
+                           int(end_x - arr_size), int(end_y - arr_size * 0.8))
+            painter.drawLine(int(end_x), int(end_y),
+                           int(end_x + arr_size), int(end_y - arr_size * 0.8))
+
+    def _draw_bend_simple(self, painter: QPainter,
+                          cx: int, y_base: int,
+                          system: SystemLayout) -> None:
+        """
+        简单推弦渲染（无详细数据时的后备方案）
+        仅画一个基础弧线箭头，不显示度数文字
         """
         pen = QPen(QColor(self.cfg.COLOR_TECHNIQUE), 1.5)
         painter.setPen(pen)
         
-        # 弧线起点：品格数字上方
         arc_start_x = cx - 4
         arc_start_y = y_base - 10
-        # 弧线终点（向上弯曲后回落）
         arc_end_x = cx + 8
         arc_end_y = y_base - 4
         
-        # 画弧线（用二次贝塞尔曲线模拟）
-        # 控制点在弧线上方，形成向上凸起的形状
         ctrl_x = cx + 2
-        ctrl_y = y_base - 18  # 弧线高度，调整效果: 越高推弦感越强
+        ctrl_y = y_base - 18
         
-        # QPainterPath 画贝塞尔曲线
         from PyQt5.QtGui import QPainterPath
         path = QPainterPath()
         path.moveTo(arc_start_x, arc_start_y)
         path.quadTo(ctrl_x, ctrl_y, arc_end_x, arc_end_y)
         painter.drawPath(path)
         
-        # 画箭头尖端
         arrow_size = 3
-        painter.drawLine(arc_end_x, arc_end_y, 
+        painter.drawLine(arc_end_x, arc_end_y,
                         arc_end_x - arrow_size, arc_end_y + arrow_size)
         painter.drawLine(arc_end_x, arc_end_y,
                         arc_end_x - arrow_size, arc_end_y - arrow_size)
@@ -1067,22 +1166,23 @@ class TabRenderer:
         painter.setPen(QPen(QColor(self.cfg.COLOR_TEXT), 1.5))
         
         if dur_val == NoteDuration.WHOLE.value:
-            # === 全休止符：悬挂式矩形块 ===
-            # 标准记谱法中全休止符悬挂在第四线下方，六线谱简化为悬挂在最上方
-            rh = 6   # 矩形高度(px)
-            rw = 8   # 矩形宽度(px)
+            # === 全休止符：悬挂式细线框 ===
+            # 标准记谱法中全休止符悬挂在第四线下方
+            # 六线谱简化为悬挂在最上方，用细线矩形而非填充块(避免看起来像□)
+            rh = 6   # 矩形高度(px)，调整效果: 增大则符号更高
+            rw = 8   # 矩形宽度(px)，调整效果: 增宽则符号更胖
             rx = cx - rw // 2
             ry = int(y_top) - rh - 2  # 悬挂在六线谱上方
-            painter.setBrush(QColor(self.cfg.COLOR_TEXT))
+            painter.setBrush(Qt.NoBrush)  # 不填充，只用细线边框
             painter.drawRect(rx, int(ry), rw, rh)
             
         elif dur_val == NoteDuration.HALF.value:
-            # === 二分休止符：坐落式矩形块 ===
-            rh = 6
-            rw = 8
+            # === 二分休止符：坐落式细线框 ===
+            rh = 6   # 矩形高度(px)
+            rw = 8   # 矩形宽度(px)
             rx = cx - rw // 2
             ry = int(y_top) + 2  # 坐落在六线谱顶部区域
-            painter.setBrush(QColor(self.cfg.COLOR_TEXT))
+            painter.setBrush(Qt.NoBrush)  # 不填充，只用细线边框
             painter.drawRect(rx, int(ry), rw, rh)
             
         elif dur_val == NoteDuration.QUARTER.value:

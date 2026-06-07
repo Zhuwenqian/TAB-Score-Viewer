@@ -24,7 +24,7 @@ from ..models.song import GTPSong
 from ..models.track import GTPTrack
 from ..models.measure import GTPMeasure
 from ..models.beat import GTPBeat
-from ..models.note import GTPNote
+from ..models.note import GTPNote, BendData
 from ..utils.constants import (
     NoteDuration, TechniqueType, DURATION_RATIO,
 )
@@ -246,9 +246,31 @@ class GTPParser:
         if effect.heavyAccentuatedNote:
             note.add_technique(TechniqueType.ACCENTUATED)
         
-        # 推弦 Bend
+        # 推弦 Bend - 提取完整推弦数据(类型/度数/曲线点)
         if effect.bend:
             note.add_technique(TechniqueType.BEND)
+            b = effect.bend
+            # 提取推弦曲线点
+            points = []
+            max_val = 0
+            for bp in b.points:
+                # BendPoint: position(时间), value(音高偏移), vibrato(是否颤音)
+                p_val = bp.value if hasattr(bp, 'value') else 0
+                p_pos = bp.position if hasattr(bp, 'position') else 0
+                p_vib = bp.vibrato if hasattr(bp, 'vibrato') else False
+                points.append((p_pos, p_val, p_vib))
+                if p_val > max_val:
+                    max_val = p_val
+            
+            # 获取推弦类型名称
+            btype_name = str(b.type) if hasattr(b.type, 'name') else str(getattr(b, 'type', 'bend'))
+            
+            note.bend = BendData(
+                bend_type=btype_name,
+                value=getattr(b, 'value', 0),
+                max_value=max_val or getattr(b, 'maxValue', 0),
+                points=points
+            )
         
         # 滑音 Slides (支持多个滑音方向)
         for slide in effect.slides:
