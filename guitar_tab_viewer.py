@@ -2241,27 +2241,28 @@ class DisplayWindow(QMainWindow):
         """
         根据速度(ms)计算每帧滚动像素数 - 速度越小越快
         
-        原理(修复后):
-          旧版用绝对像素值(scroll_step=200/speed_ms)，导致窗口越大总距离越长，
-          同样像素/帧显得越慢（大窗口播完要更久）。
+        原理:
+          播放总时长(秒) ∝ speed_ms (用户设的值越大→播放越慢)
+          每帧前进距离 = 总距离 / 总帧数
           
-          新版改为基于总距离的比例计算:
-            播放总时长(秒) = speed_ms * SCALE_FACTOR
-            总tick数 = 时长(秒) * (1000/speed_ms) = 固定值
-            scroll_step = total_distance / 总tick数
+          总帧数的计算考虑两个因素:
+            1. speed_ms: 用户期望的播放时长系数(越大越慢)
+            2. base_speed: 定时器实际间隔(ms)，决定每秒多少帧
+            
+          公式: scroll_step = total_distance × base_speed / (speed_ms × SCALE × 1000)
           
-          这样无论窗口多大，相同speed_ms设置下，播完一整首谱子的
-          实际耗时完全一致，只是每帧移动的像素数随内容量自动调整。
+          这样无论定时器间隔是否变化(如速度曲线模式)，scroll_step 都会
+          正确响应 speed_ms 的变化，保证速度控制始终有效。
         
         参数:
-            speed_ms: 定时器间隔(毫秒)，范围约5-150ms
+            speed_ms: 当前有效速度(毫秒)。来自 base_speed 或速度曲线返回值。
+                     值越大→scroll_step越小→播放越慢
         
-        调整效果:
-            speed_ms=5   → 约7.5秒播完(极快)
-            speed_ms=20  → 约30秒播完(快)
-            speed_ms=50  → 约75秒播完(中速)
-            speed_ms=100 → 约150秒播完(慢)
-            speed_ms=150 → 约225秒播完(很慢)
+        调整效果(以 base_speed=50 为例):
+            speed_ms=25  → 2x速 (约37.5秒播完)
+            speed_ms=50  → 1x速 (约75秒播完，基准)
+            speed_ms=100 → 0.5x速 (约150秒播完)
+            speed_ms=150 → 0.33x速 (约225秒播完)
         """
         if speed_ms<=0:
             speed_ms=1
@@ -2269,17 +2270,24 @@ class DisplayWindow(QMainWindow):
         # 缩放因子: 控制速度档位的整体快慢感
         # 调大此值 → 同样speed_ms下播放更慢(耗时更长)
         # 调小此值 → 同样speed_ms下播放更快
-        DURATION_SCALE = 1.5  # 总时长(秒) = speed_ms * DURATION_SCALE
-        
-        # 计算完成一次完整播放所需的定时器tick总数
-        # 公式推导: 总时长(s) = speed_ms/1000 * DURATION_SCALE * 1000 = speed_ms * DURATION_SCALE
-        #          tick频率 = 1000/speed_ms (每秒多少次tick)
-        #          总ticks = 总时长(s) * tick频率 = speed_ms * DURATION_SCALE * 1000/speed_ms = DURATION_SCALE * 1000
-        total_ticks = DURATION_SCALE * 1000.0  # 恒定值: 1500 ticks
+        DURATION_SCALE = 1.5  # 总时长(秒) = speed_ms * DURATION_SCALE / 1000
         
         if self.total_scroll_distance > 0:
-            # 每帧前进距离 = 总距离 / 总tick数
-            self.scroll_step = self.total_scroll_distance / total_ticks
+            # 核心公式: scroll_step 与 speed_ms 成反比，与 base_speed 成正比
+            # 
+            # 推导:
+            #   目标总时长 T_total = speed_ms * DURATION_SCALE / 1000 (秒)
+            #   定时器帧率     FPS ≈ 1000 / base_speed (帧/秒，由timer.start(base_speed)决定)
+            #   总帧数         N_frames = T_total * FPS
+            #                        = (speed_ms * DURATION_SCALE / 1000) * (1000 / base_speed)
+            #                        = speed_ms * DURATION_SCALE / base_speed
+            #   每帧像素       scroll_step = total_distance / N_frames
+            #                        = total_distance * base_speed / (speed_ms * DURATION_SCALE)
+            #
+            self.scroll_step = (
+                self.total_scroll_distance * self.base_speed /
+                (speed_ms * DURATION_SCALE * 1000.0)
+            )
         else:
             self.scroll_step = 1.0
 
