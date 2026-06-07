@@ -1573,15 +1573,23 @@ class DisplayWindow(QMainWindow):
         
         参数:
             index: 下拉菜单选中项索引(0-based)，对应音轨序号
+        
+        并轨模式特殊处理:
+          当音频模式为"全轨并轨"(all)时，切换音轨仅改变视觉显示，
+          不停止音频播放、不重置滚动位置、不重建MIDI事件。
+          因为并轨模式下所有音轨的音频同时在播放。
         """
         if index < 0 or not self.gtp_file_path:
             return
 
         self.gtp_current_track = index
 
-        # 停止播放（避免渲染过程中滚动错乱）
+        # === 判断是否需要停止播放 ===
+        # 仅在非并轨模式时停止（因为单轨模式音频与视觉绑定）
+        need_stop = (self._audio_mode != "all")
+        
         was_playing = self.timer.isActive()
-        if was_playing:
+        if need_stop and was_playing:
             self.stop_playback()
 
         try:
@@ -1594,15 +1602,26 @@ class DisplayWindow(QMainWindow):
             self.images = pixmaps
             self.loaded_images = pixmaps
             self.display_widget.set_images(pixmaps)
-            self.current_position = 0.0
-            self.play_time = 0.0
-            self._calculate_total_distance()
-            self._update_page_display()
-            self.update_progress_display()
-            self.display_widget.update()
+            
+            # 并轨模式: 保持当前播放位置不变（仅切换视觉）
+            # 单轨模式: 重置到开头
+            if not need_stop:
+                self._calculate_total_distance()  # 重新计算总距离(新图像尺寸可能不同)
+                self._update_page_display()
+                self.update_progress_display()
+                self.display_widget.update()
+                # 不重置 current_position / play_time，继续从当前位置滚动
+            else:
+                self.current_position = 0.0
+                self.play_time = 0.0
+                self._calculate_total_distance()
+                self._update_page_display()
+                self.update_progress_display()
+                self.display_widget.update()
 
-            # Phase 3: 切换音轨后重建音频事件
-            self._rebuild_audio_events()
+            # Phase 3: 仅单轨模式才需要重建音频事件
+            if need_stop:
+                self._rebuild_audio_events()
 
         except Exception as e:
             QMessageBox.warning(self, "音轨切换失败", f"无法渲染音轨 {index+1}:\n{str(e)}")
@@ -1909,11 +1928,50 @@ class DisplayWindow(QMainWindow):
         return self.base_speed
 
     def _calculate_scroll_step(self,speed_ms:float)->None:
-        """根据速度(ms)计算每帧滚动像素数 - 速度越小越快"""
-        # speed_ms范围约5-150ms，映射到scroll_step 0.5-5px
-        if speed_ms<=0:speed_ms=1
-        # 非线性映射让速度调节更自然
-        self.scroll_step=max(0.3,min(8.0,200.0/speed_ms))
+        """
+        根据速度(ms)计算每帧滚动像素数 - 速度越小越快
+        
+        原理(修复后):
+          旧版用绝对像素值(scroll_step=200/speed_ms)，导致窗口越大总距离越长，
+          同样像素/帧显得越慢（大窗口播完要更久）。
+          
+          新版改为基于总距离的比例计算:
+            播放总时长(秒) = speed_ms * SCALE_FACTOR
+            总tick数 = 时长(秒) * (1000/speed_ms) = 固定值
+            scroll_step = total_distance / 总tick数
+          
+          这样无论窗口多大，相同speed_ms设置下，播完一整首谱子的
+          实际耗时完全一致，只是每帧移动的像素数随内容量自动调整。
+        
+        参数:
+            speed_ms: 定时器间隔(毫秒)，范围约5-150ms
+        
+        调整效果:
+            speed_ms=5   → 约7.5秒播完(极快)
+            speed_ms=20  → 约30秒播完(快)
+            speed_ms=50  → 约75秒播完(中速)
+            speed_ms=100 → 约150秒播完(慢)
+            speed_ms=150 → 约225秒播完(很慢)
+        """
+        if speed_ms<=0:
+            speed_ms=1
+        
+        # 缩放因子: 控制速度档位的整体快慢感
+        # 调大此值 → 同样speed_ms下播放更慢(耗时更长)
+        # 调小此值 → 同样speed_ms下播放更快
+        DURATION_SCALE = 1.5  # 总时长(秒) = speed_ms * DURATION_SCALE
+        
+        # 计算完成一次完整播放所需的定时器tick总数
+        # 公式推导: 总时长(s) = speed_ms/1000 * DURATION_SCALE * 1000 = speed_ms * DURATION_SCALE
+        #          tick频率 = 1000/speed_ms (每秒多少次tick)
+        #          总ticks = 总时长(s) * tick频率 = speed_ms * DURATION_SCALE * 1000/speed_ms = DURATION_SCALE * 1000
+        total_ticks = DURATION_SCALE * 1000.0  # 恒定值: 1500 ticks
+        
+        if self.total_scroll_distance > 0:
+            # 每帧前进距离 = 总距离 / 总tick数
+            self.scroll_step = self.total_scroll_distance / total_ticks
+        else:
+            self.scroll_step = 1.0
 
     def _calculate_total_distance(self)->None:
         """计算总可滚动距离
