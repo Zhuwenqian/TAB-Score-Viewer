@@ -24,15 +24,16 @@
   - render(): 主渲染入口，返回多页QPixmap列表
   - _draw_system(): 绘制一行系统(弦线 + 调拍号 + 所有小节)
   - _draw_measure(): 绘制单个小节(小节线 + 段落标记 + 所有拍 + P.M.虚线)
-  - _draw_beat(): 绘制单个拍(品格数字 + 技巧标记 + 符干符尾)
+  - _draw_beat(): 绘制单个拍(品格数字 + 技巧标记 + 符干符尾, 含休止符过滤)
   - _draw_technique_marks(): 技巧标记分发器，按类型调用对应绘制方法
+  - _draw_dashed_extension_line(): P.M./Let Ring GP5格式虚线(strict参数控制断开策略)
 
 依赖库:
   - PyQt5 (QPainter, QPixmap, QFont, QPen, QColor, QPainterPath等)
   - 内部依赖: gtp_engine.models.*, layout_engine.*, utils.constants
 
 创建日期: 2026-06-06
-最后更新: 2026-06-07 (v1.2.0: Phase 2增强渲染 - 技巧符号图形化/时值显示/调拍号)
+最后更新: 2026-06-07 (v1.2.1: P.M./Let Ring GP5格式虚线+停止竖线| + strict断开模式)
 ============================================================
 """
 
@@ -200,118 +201,142 @@ class TabRenderer:
         
         绘制顺序:
           1. 六条弦线
-          2. 调号/拍号信息（仅在该系统第一个小节有变化时显示）
+          2. 信息栏（TAB标识 + 谱号 + 拍号 + 调号）— 仅每行第一系统绘制
           3. 每个小节的内容（小节线 + 音符 + 技巧标记）
+        
+        信息栏设计（参照 Guitar Pro 标准布局）:
+          - 最左侧: "T A B" 竖排文字（标识这是六线谱）
+          - 中部: 拍号(如4/4上下堆叠) + 调号升降号数
+          - 上方: 调性名称(如C5, G3等)
+          - 用竖线与后续小节内容分隔
         """
         
         # 1. 绘制六条弦线
         self._draw_tab_lines(painter, system)
         
-        # 2. 在该系统第一个小节前绘制调号/拍号（如果需要）
+        # 2. 在该系统第一个小节前绘制独立信息栏
         if system.measures:
             first_measure = system.measures[0].measure
-            self._draw_time_signature(painter, first_measure, system)
-            self._draw_key_signature(painter, first_measure, system)
+            self._draw_info_bar(painter, first_measure, system)
         
         # 3. 绘制每个小节的内容
         for m_layout in system.measures:
             self._draw_measure(painter, track, system, m_layout)
 
+    def _draw_info_bar(self, painter: QPainter,
+                       measure, system: SystemLayout) -> None:
+        """
+        绘制独立信息栏（每行系统开头，类似 Guitar Pro 的谱号区域）
+        
+        布局结构（从左到右）:
+          ┌────┬─────┬──────┬────┐
+          │    │调性 │      │    │
+          │ T │拍号 │      │ 小│
+          │ A │4/4 │ 竖线 │ 节 │
+          │ B │     │      │ 内│
+          │    │     │      │ 容│
+          └────┴─────┴──────┴────┘
+        
+        参数:
+            painter: QPainter绑制对象
+            measure: 该行第一个小节（含拍号/调号信息）
+            system:  系统布局（含Y坐标）
+        """
+        # --- 布局参数（信息栏总宽度约55px）---
+        tab_x = self.cfg.PAGE_MARGIN_LEFT - 38   # TAB文字X坐标
+        clef_x = self.cfg.PAGE_MARGIN_LEFT - 24  # 谱号线X坐标
+        ts_x = self.cfg.PAGE_MARGIN_LEFT - 6     # 拍号X坐标  
+        divider_x = self.cfg.PAGE_MARGIN_LEFT + 18  # 分隔线X坐标
+        
+        y_top = system.y_tab_top
+        y_bot = system.y_tab_bottom
+        y_mid = (y_top + y_bot) // 2
+        
+        # ===== 1. "T A B" 竖排文字（最左侧）=====
+        painter.setPen(QColor(self.cfg.COLOR_TEXT))
+        font = QFont(self.cfg.NOTE_FONT_FAMILY, 8, QFont.Bold)
+        painter.setFont(font)
+        fm = QFontMetrics(font)
+        
+        # 竖向排列 T / A / B，均匀分布在六线谱高度范围内
+        tab_letters = ['T', 'A', 'B']
+        tab_spacing = (y_bot - y_top) // (len(tab_letters) + 1)
+        for i, letter in enumerate(tab_letters):
+            ly = y_top + tab_spacing * (i + 1) + 3  # +3使视觉居中
+            tw = fm.horizontalAdvance(letter)
+            painter.drawText(QPoint(tab_x - tw // 2, int(ly)), letter)
+        
+        # ===== 2. 谱号竖线（类似高音谱号的简化表示）=====
+        pen = QPen(QColor(self.cfg.COLOR_TEXT), 1.5)
+        painter.setPen(pen)
+        # 画一条从第2弦到第5弦的竖线（模拟谱号主体）
+        line_y1 = y_top + int(self.cfg.TAB_LINE_SPACING * 1)  # 第2弦位置
+        line_y2 = y_top + int(self.cfg.TAB_LINE_SPACING * 4.5)  # 接近第5弦底部
+        painter.drawLine(clef_x, line_y1, clef_x, line_y2)
+        # 底部小弯钩（模拟谱号尾部曲线）
+        from PyQt5.QtGui import QPainterPath
+        hook_path = QPainterPath()
+        hook_path.moveTo(clef_x, line_y2)
+        hook_path.cubicTo(clef_x + 5, line_y2 - 3, 
+                         clef_x + 6, line_y2 + 2, 
+                         clef_x + 2, line_y2 + 6)
+        painter.drawPath(hook_path)
+        
+        # ===== 3. 拍号（分子在上，分母在下）=====
+        numerator, denominator = measure.time_signature
+        
+        # 始终显示拍号（Guitar Pro 风格：每行开头都显示）
+        font_ts = QFont(self.cfg.NOTE_FONT_FAMILY, 11, QFont.Bold)
+        painter.setFont(font_ts)
+        fm_ts = QFontMetrics(font_ts)
+        
+        # 分子（上数字）：位于六线谱上半部分
+        num_text = str(numerator)
+        num_w = fm_ts.horizontalAdvance(num_text)
+        painter.drawText(QPoint(ts_x - num_w // 2, int(y_top + self.cfg.TAB_LINE_SPACING * 1.5 + 9)), 
+                        num_text)
+        
+        # 分母（下数字）：位于六线谱下半部分
+        den_text = str(denominator)
+        den_w = fm_ts.horizontalAdvance(den_text)
+        painter.drawText(QPoint(ts_x - den_w // 2, int(y_top + self.cfg.TAB_LINE_SPACING * 4 + 4)), 
+                        den_text)
+        
+        # ===== 4. 调号（在拍号上方显示调性名称或升降号数）=====
+        key_sig = measure.key_signature
+        if isinstance(key_sig, (list, tuple)):
+            key_val = key_sig[0] if len(key_sig) > 0 else 0
+        else:
+            key_val = key_sig if key_sig else 0
+        
+        font_key = QFont(self.cfg.NOTE_FONT_FAMILY, 7)
+        painter.setFont(font_key)
+        painter.setPen(QColor("#888888"))  # 灰色次要信息
+        
+        if key_val > 0:
+            key_text = f"#{key_val}"
+        elif key_val < 0:
+            key_text = f"b{abs(key_val)}"
+        else:
+            key_text = ""  # C大调不显示或显示"C"
+        
+        if key_text:
+            fm_key = QFontMetrics(font_key)
+            kw = fm_key.horizontalAdvance(key_text)
+            painter.drawText(QPoint(ts_x - kw // 2, int(y_top) - 4), key_text)
+        
+        # ===== 5. 右侧分隔线（双细线，类似GP的小节线风格）=====
+        pen_div = QPen(QColor(self.cfg.COLOR_BARLINE), 1)
+        painter.setPen(pen_div)
+        painter.drawLine(divider_x, y_top - 2, divider_x, y_bot + 2)
+        painter.drawLine(divider_x + 3, y_top - 2, divider_x + 3, y_bot + 2)
+
     def _draw_time_signature(self, painter: QPainter,
                               measure, system: SystemLayout) -> None:
         """
-        绘制拍号记号（如 "4/4"、"3/4"、"6/8" 等）
-        
-        原理: 拍号表示每小节的拍数和每拍的时值单位。
-              标准记谱法中拍号显示在谱号和调号之后、乐曲开头。
-              六线谱中在每行系统开头或拍号变化处显示。
-              格式：上下堆叠的两个数字，分子在上（拍数），分母在下（时值单位）。
-        
-        显示规则:
-          - 仅当拍号不是默认的 4/4 时才显示（节省空间）
-          - 拍号变化时（与前一小节不同）也显示
-        
-        参数:
-            painter: QPainter绑制对象
-            measure: 小节数据（含 time_signature 属性）
-            system:  系统布局（含Y坐标信息）
+        [已废弃] 拍号绘制已合并到 _draw_info_bar() 中统一处理。
+        此方法保留仅作向后兼容。
         """
-        numerator, denominator = measure.time_signature
-        
-        # 仅非标准拍号(非4/4)时显示，避免视觉冗余
-        # 如需始终显示，可去掉此判断
-        if numerator == 4 and denominator == 4:
-            return
-        
-        # 拍号位置：六线谱左侧，在小节线右边一点
-        x = self.cfg.PAGE_MARGIN_LEFT - 2
-        y_top = system.y_tab_top + 2   # 分子Y（上数字）
-        y_bottom = system.y_tab_top + self.cfg.TAB_LINE_SPACING * 3 + 6  # 分母Y（下数字）
-        
-        painter.setPen(QColor(self.cfg.COLOR_TEXT))
-        font = QFont(self.cfg.NOTE_FONT_FAMILY, 11, QFont.Bold)
-        painter.setFont(font)
-        
-        # 上方：分子（拍数）
-        fm = QFontMetrics(font)
-        num_text = str(numerator)
-        num_w = fm.horizontalAdvance(num_text)
-        painter.drawText(QPoint(x - num_w // 2, y_top + 10), num_text)
-        
-        # 下方：分母（时值单位）
-        den_text = str(denominator)
-        den_w = fm.horizontalAdvance(den_text)
-        painter.drawText(QPoint(x - den_w // 2, y_bottom), den_text)
-
-    def _draw_key_signature(self, painter: QPainter,
-                             measure, system: SystemLayout) -> None:
-        """
-        绘制调号记号（升号# 或降号b 的数量）
-        
-        原理: 调号表示乐曲的调性（如C大调=0升降号, G大调=1升号）。
-              标准记谱法中调号紧跟在谱号之后。六线谱简化为：
-              在拍号左侧显示升降号数量文字标注。
-        
-        显示规则:
-          - 仅当调号非C大调/a小调(0)时显示
-          - 正数表示升号数(Sharps)，负数表示降号数(Flats)
-        
-        参数:
-            painter: QPainter绑制对象
-            measure: 小节数据（含 key_signature 属性）
-            system:  系统布局
-        """
-        key_sig = measure.key_signature
-        
-        # 兼容处理：key_signature 可能是int或tuple格式
-        if isinstance(key_sig, (list, tuple)):
-            # 如果是元组，取第一个元素作为升降号数
-            key_val = key_sig[0] if len(key_sig) > 0 else 0
-        else:
-            key_val = key_sig
-        
-        # C大调/a小调不显示调号（无升降号）
-        if not key_val or key_val == 0:
-            return
-        
-        # 调号位置：在拍号左边
-        x = self.cfg.PAGE_MARGIN_LEFT - 20
-        y_center = system.y_tab_top + self.cfg.TAB_LINE_SPACING * 2.5
-        
-        painter.setPen(QColor(self.cfg.COLOR_TEXT))
-        font = QFont(self.cfg.NOTE_FONT_FAMILY, 9)
-        painter.setFont(font)
-        
-        if key_val > 0:
-            # 升号调：显示 "#N" (N=升号数量)
-            text = f"#{key_val}"
-        else:
-            # 降号调：显示 "bN" (N=降号数量的绝对值)
-            text = f"b{abs(key_val)}"
-        
-        fm = QFontMetrics(font)
-        tw = fm.horizontalAdvance(text)
-        painter.drawText(QPoint(x - tw // 2, int(y_center + 3)), text)
 
     def _draw_tab_lines(self, painter: QPainter, system: SystemLayout) -> None:
         """绘制六条水平的弦线（六线谱的基础线）"""
@@ -430,8 +455,28 @@ class TabRenderer:
         cx = b_layout.x_center  # 该拍的中心X坐标
         
         # --- 休止符处理 ---
+        # 仅当满足以下条件时才绘制休止符符号:
+        #   1. 是真正的休止拍(is_rest=True 且无音符)
+        #   2. 不是小节末尾的填充空拍（GTP文件常在每小节末尾添加空拍填满时值，
+        #      这些填充空拍不应显示为可见的休止符符号，避免视觉混乱）
         if beat.is_rest and not beat.notes:
-            self._draw_rest_symbol(painter, beat, cx, system)
+            # 检查是否为有意义的休止符（非末尾填充）
+            # 策略：如果该拍的时值较短(<=四分音符)或该小节中后续还有其他音符拍，
+            #       则认为是有意义的休止符；否则跳过（可能是填充空拍）
+            is_meaningful_rest = True
+            if m_layout and m_layout.beats:
+                # 获取该拍在小节中的索引
+                try:
+                    beat_idx = m_layout.beats.index(b_layout)
+                    # 如果是小节最后一个拍，且时值为四分或更长 → 可能是填充
+                    if beat_idx == len(m_layout.beats) - 1:
+                        if beat.duration.value <= NoteDuration.QUARTER.value:
+                            is_meaningful_rest = False
+                except ValueError:
+                    pass
+            
+            if is_meaningful_rest:
+                self._draw_rest_symbol(painter, beat, cx, system)
             return
         
         # --- 按弦分组绘制品格数字 ---
@@ -719,6 +764,7 @@ class TabRenderer:
           - 单字符标记(H/P/s/B/>/.等): 显示在品格数字右侧
           - 多字符标记(P.M./Let Ring/N.H.等): 显示在六线谱下方区域
           - 已有图形化的技巧(泛音/滑音/推弦/颤音): 也同时显示简短文字辅助说明
+          - P.M. 和 Let Ring 不在此处绘制（由 _draw_pm_letring_extensions 统一画虚线+标签）
         
         参数:
             painter: QPainter绑制对象
@@ -729,13 +775,18 @@ class TabRenderer:
         if not note.techniques:
             return
         
+        # P.M.和Let Ring由虚线延长方法统一处理，此处跳过避免重复标注
+        SKIP_TECHS = {TechniqueType.PALM_MUTE, TechniqueType.LET_RING}
+        
         painter.setPen(QColor(self.cfg.COLOR_TECHNIQUE))
         font = QFont(self.cfg.NOTE_FONT_FAMILY, 8)
         painter.setFont(font)
         
-        # 收集需要显示文字的技巧（排除纯图形化不需要额外文字的）
+        # 收集需要显示文字的技巧（排除纯图形化和P.M./Let Ring）
         text_techs = []
         for tech in note.techniques:
+            if tech in SKIP_TECHS:
+                continue  # 跳过P.M.和Let Ring，由虚线方法处理
             abbr = TECHNIQUE_ABBREVIATION.get(tech, tech.value)
             text_techs.append(abbr)
         
@@ -773,62 +824,122 @@ class TabRenderer:
             system:  系统布局
             m_layout: 小节布局（包含该小节所有拍的列表）
         """
-        # 收集所有有P.M.或Let Ring的音符及其X坐标
-        pm_notes = []   # (x_center, string, tech_type) 列表
-        lr_notes = []
+        # 收集所有有P.M.或Let Ring的**拍**及其完整位置信息
+        # 使用 BeatLayout 的 x_start/x_end/x_center 确保虚线长度跟随时值
+        pm_beats = []   # (x_start, x_end, x_center) 列表 — 每个有P.M.的拍
+        lr_beats = []
         
         for b_layout in m_layout.beats:
-            for note in b_layout.beat.notes:
-                if note.has_technique(TechniqueType.PALM_MUTE):
-                    pm_notes.append((b_layout.x_center, note.string))
-                if note.has_technique(TechniqueType.LET_RING):
-                    lr_notes.append((b_layout.x_center, note.string))
+            has_pm = any(note.has_technique(TechniqueType.PALM_MUTE)
+                         for note in b_layout.beat.notes)
+            has_lr = any(note.has_technique(TechniqueType.LET_RING)
+                         for note in b_layout.beat.notes)
+            if has_pm:
+                pm_beats.append((b_layout.x_start, b_layout.x_end,
+                                 b_layout.x_center))
+            if has_lr:
+                lr_beats.append((b_layout.x_start, b_layout.x_end,
+                                 b_layout.x_center))
         
-        # 为P.M.画虚线（在同一弦上连续的P.M.音符之间画线）
+        # 为P.M.画虚线（基于拍的时值宽度）
         self._draw_dashed_extension_line(
-            painter, pm_notes, system, "P.M.", QColor(self.cfg.COLOR_TECHNIQUE)
+            painter, pm_beats, system, "P.M.", QColor(self.cfg.COLOR_TECHNIQUE)
         )
         
-        # 为Let Ring画虚线
+        # 为Let Ring画虚线（GP5格式：小写 + 跨拍连线，更严格断开）
         self._draw_dashed_extension_line(
-            painter, lr_notes, system, "Let Ring", QColor("#60A5FA")
+            painter, lr_beats, system, "let ring", QColor("#60A5FA"),
+            strict=True
         )
 
     def _draw_dashed_extension_line(self, painter: QPainter,
-                                     notes_info: list, system: SystemLayout,
-                                     label: str, color: QColor) -> None:
+                                     beats_info: list, system: SystemLayout,
+                                     label: str, color: QColor,
+                                     strict: bool = False) -> None:
         """
         绘制通用虚线延长线（P.M. / Let Ring 共用方法）
         
+        严格参照 Guitar Pro 5 的渲染格式:
+          - P.M.: "P.M.----|" (大写 + 虚线跨拍连接 + 停止竖线)
+          - Let Ring: "let ring ----|" (小写 + 虚线跨拍连接 + 停止竖线)
+          - 每个**有技巧的拍**独立绘制: 标签文字 + 虚线
+          - 虚线长度 = 该拍的 x_start → x_end（严格跟随时值）
+          - **连续技巧拍**之间用虚线贯通连接（不重复画标签）
+          - 每段连续技巧**末尾画竖线 |** 表示技巧停止
+        
         参数:
-            notes_info: [(x_center, string), ...] 音符位置列表
+            beats_info: [(x_start, x_end, x_center), ...] 有技巧的拍的位置列表
             system:     系统布局
-            label:      线段起始处的文字标签("P.M." 或 "Let Ring")
+            label:      文字标签("P.M." 或 "let ring")
             color:      线条颜色
+            strict:     是否使用严格断开模式(Let Ring=True, P.M.=False)
+                        True: 间距 > 1.3倍标准拍间距就断开（中间隔1个非技巧拍即分段）
+                        False: 用相对阈值(1.3倍平均间距)，适合密集的P.M.
         """
-        if len(notes_info) < 2:
-            return  # 只有1个音符无需画延长线
+        if len(beats_info) < 1:
+            return
         
         # 按X坐标排序
-        notes_info.sort(key=lambda x: x[0])
+        beats_info.sort(key=lambda b: b[0])
         
-        # 取第一个和最后一个音符的位置作为线的起止点
-        first_x, first_str = notes_info[0]
-        last_x, last_str = notes_info[-1]
+        line_y = int(system.y_tab_bottom + 8)
         
-        # Y坐标：六线谱底部下方
-        line_y = system.y_tab_bottom + 8
-        
-        # 画虚线
+        # 设置虚线样式
         pen = QPen(color, 1, Qt.DashLine)
-        painter.setPen(pen)
-        painter.drawLine(first_x + 8, line_y, last_x - 4, line_y)
         
-        # 在起始位置画标签文字
+        # 字体设置
         font = QFont(self.cfg.NOTE_FONT_FAMILY, 7)
         painter.setFont(font)
-        painter.setPen(color)
-        painter.drawText(QPoint(first_x - 2, line_y + 3), label)
+        
+        # 计算连续判断阈值
+        if strict:
+            # 严格模式(Let Ring): 基于标准拍间距的绝对阈值
+            # 间距 > 1.3倍NOTE_MIN_SPACING 就认为中间隔了非技巧拍，需要断开
+            beat_spacing = self.cfg.NOTE_MIN_SPACING
+            continuous_threshold = beat_spacing * 1.3  # 约34px
+        else:
+            # 宽松模式(P.M.): 基于实际数据相对阈值
+            gaps = [beats_info[i+1][0] - beats_info[i][2]
+                    for i in range(len(beats_info) - 1)]
+            avg_gap = sum(gaps) / len(gaps) if gaps else beat_spacing
+            continuous_threshold = avg_gap * 1.3
+        
+        i = 0
+        while i < len(beats_info):
+            seg_start = i
+            
+            # 找到当前连续段的结束位置
+            seg_end = i
+            while seg_end < len(beats_info) - 1:
+                next_gap = beats_info[seg_end + 1][0] - beats_info[seg_end][2]
+                if next_gap > continuous_threshold:
+                    break
+                seg_end += 1
+            
+            # === 绘制这一段连续的技巧拍 ===
+            
+            # 第一拍起始位置画标签文字
+            sx = int(beats_info[seg_start][0])
+            
+            painter.setPen(color)
+            painter.drawText(QPoint(sx + 2, line_y + 3), label)
+            
+            # 从标签后面画虚线到整段最后拍的结束位置
+            # 根据标签文字长度计算虚线起点
+            label_width = len(label) * 7 + 4  # 根据文字长度估算宽度(px)
+            dash_start = sx + label_width
+            total_end_x = int(beats_info[seg_end][1]) - 2
+            
+            if dash_start < total_end_x:
+                painter.setPen(pen)
+                painter.drawLine(dash_start, line_y, total_end_x, line_y)
+            
+            # 在整段末尾画竖线 | 表示停止
+            painter.setPen(color)
+            stop_x = int(beats_info[seg_end][1])
+            painter.drawLine(stop_x, line_y - 4, stop_x, line_y + 5)
+            
+            i = seg_end + 1
 
     def _draw_stem(self, painter: QPainter, beat, 
                    b_layout: BeatLayout, system: SystemLayout) -> None:
@@ -949,7 +1060,7 @@ class TabRenderer:
             system:  系统布局（含Y坐标）
         """
         dur_val = beat.duration.value
-        y_center = system.y_tab_top + 2.5 * self.cfg.TAB_LINE_SPACING  # 六线谱中心Y
+        y_center = int(system.y_tab_top + 2.5 * self.cfg.TAB_LINE_SPACING)  # 六线谱中心Y(转int)
         y_top = system.y_tab_top
         y_bottom = system.y_tab_bottom
         
@@ -961,27 +1072,29 @@ class TabRenderer:
             rh = 6   # 矩形高度(px)
             rw = 8   # 矩形宽度(px)
             rx = cx - rw // 2
-            ry = y_top - rh - 2  # 悬挂在六线谱上方
+            ry = int(y_top) - rh - 2  # 悬挂在六线谱上方
             painter.setBrush(QColor(self.cfg.COLOR_TEXT))
-            painter.drawRect(rx, ry, rw, rh)
+            painter.drawRect(rx, int(ry), rw, rh)
             
         elif dur_val == NoteDuration.HALF.value:
             # === 二分休止符：坐落式矩形块 ===
             rh = 6
             rw = 8
             rx = cx - rw // 2
-            ry = y_top + 2  # 坐落在六线谱顶部区域
+            ry = int(y_top) + 2  # 坐落在六线谱顶部区域
             painter.setBrush(QColor(self.cfg.COLOR_TEXT))
-            painter.drawRect(rx, ry, rw, rh)
+            painter.drawRect(rx, int(ry), rw, rh)
             
         elif dur_val == NoteDuration.QUARTER.value:
-            # === 四分休止符：锯齿形/闪电形 ===
-            # 用折线模拟标准四分休止符的锯齿形状
+            # === 四分休止符：紧凑锯齿形 ===
+            # 用折线模拟标准四分休止符，限制在六线谱中间区域（约20px高）
+            r_top = y_center - 10    # 锯齿顶部Y
+            r_bot = y_center + 10    # 锯齿底部Y
             points = [
-                QPoint(cx + 3, int(y_top + 4)),      # 右上起点
-                QPoint(cx - 3, int(y_center)),         # 左下拐角
-                QPoint(cx + 4, int(y_bottom - 6)),     # 右上拐角
-                QPoint(cx - 2, int(y_bottom - 2)),     # 终点
+                QPoint(cx + 3, r_top),         # 右上起点
+                QPoint(cx - 3, r_top + 7),      # 左拐角
+                QPoint(cx + 4, r_bot - 3),      # 右拐角
+                QPoint(cx - 2, r_bot),          # 终点
             ]
             for i in range(len(points) - 1):
                 painter.drawLine(points[i], points[i + 1])
@@ -989,14 +1102,16 @@ class TabRenderer:
         else:
             # === 八分及更短休止符：类似"7"的圆弧 + 符尾 ===
             # 画一个左开口的圆弧（类似"7"的上半部分）
-            arc_r = 5  # 圆弧半径
-            painter.drawArc(cx - arc_r, y_center - arc_r - 4,
+            arc_r = 5  # 圆弧半径(px)
+            arc_x = int(cx - arc_r)
+            arc_y = int(y_center) - arc_r - 4  # 确保所有参数为int，避免PyQt5类型错误
+            painter.drawArc(arc_x, arc_y,
                            arc_r * 2, arc_r * 2,
                            180 * 16, 160 * 16)  # 从左边开始画约160度的弧
             
             # 画竖线向下（"7"的下半部分）
-            painter.drawLine(cx + arc_r - 2, y_center - 2, 
-                            cx + arc_r - 2, y_center + 10)
+            painter.drawLine(cx + arc_r - 2, int(y_center) - 2, 
+                            cx + arc_r - 2, int(y_center) + 10)
             
             # 附点标记
             if beat.is_dotted:
