@@ -64,7 +64,7 @@ from PyQt5.QtGui import (
     QPixmap, QPainter, QPen, QColor, QFont, QIcon,
     QImage, QCursor, QPainterPath, QLinearGradient, QRadialGradient,
     QMouseEvent, QKeyEvent, QWheelEvent, QResizeEvent, QShowEvent,
-    QKeySequence, QPalette, QBrush, QTransform
+    QKeySequence, QPalette, QBrush, QTransform, QPolygonF
 )
 from PyQt5.QtCore import (
     Qt, QTimer, QRect, QSize, QPoint, QRunnable, QThreadPool,
@@ -291,6 +291,9 @@ class LoadContentWorker(QRunnable):
             
             # 解析并渲染（内部调用 parse_gtp + render）
             pixmaps = renderer.render_from_file(self.file_path)
+            
+            # 将布局数据存储到window(供播放光标功能使用)
+            self.window._page_layouts = getattr(renderer, 'last_layouts', [])
             
             # 进度报告：完成
             self.signals.progress.emit(100)
@@ -1073,6 +1076,9 @@ class DisplayWidget(QWidget):
         
         # Phase 3: 绘制当前播放音符高亮(音频同步)
         self._draw_audio_highlight(painter)
+        
+        # Phase 3.5: 绘制播放光标(Playhead) - 移动竖条+小节高亮
+        self._draw_playhead(painter)
 
         # 加载遮罩
         if self.parent_window and self.parent_window.is_loading:
@@ -1150,6 +1156,135 @@ class DisplayWidget(QWidget):
         note_name = pitch_names[midi_pitch % 12]
         info_text = f"{note_name}{octave} (vel:{velocity})"
         painter.drawText(self.width() - 80, 14, info_text)
+
+    def _draw_playhead(self, painter: QPainter)->None:
+        """
+        Phase 3.5: 绘制播放光标(Playhead) - 移动竖条 + 当前小节高亮
+        
+        原理:
+          从 parent_window._playhead_info 获取当前播放位置信息，
+          该信息由 _update_playhead() 每帧更新，包含:
+            - 当前所在页面/系统(行)/小节/拍
+            - 光标在原始渲染坐标系中的X坐标
+          
+          绘制时需要将原始坐标映射到显示坐标(考虑图像缩放和滚动偏移)。
+        
+        视觉效果:
+          1. 当前播放小节的半透明背景高亮(淡蓝色)
+          2. 一条从谱顶到底的红色竖线表示播放位置
+          3. 竖线上方有一个小三角形指示器
+          4. 仅在正在播放时显示(定时器激活状态)
+        """
+        if not self.parent_window:
+            return
+        
+        # 非播放状态不绘制光标
+        if not self.parent_window.timer.isActive():
+            return
+        
+        info = self.parent_window._playhead_info
+        if not info or len(info) < 6:
+            return
+        
+        page_idx, sys_idx, meas_idx, beat_idx, x_orig, progress = info
+        
+        # === 计算该页面在显示区域中的位置 ===
+        if page_idx >= len(self.images):
+            return
+        
+        img = self.images[page_idx]
+        if img.isNull():
+            return
+        
+        ww = self.width()
+        sw = ww - 20  # 显示宽度(去除左右边距)
+        
+        # 图像缩放比: 显示像素 / 原始像素
+        ratio = sw / img.width() if img.width() > 0 else 1
+        
+        # 计算该页面在所有页面中的累积Y偏移
+        page_y_offset = 0.0
+        for i in range(page_idx):
+            prev_img = self.images[i]
+            if prev_img.isNull():
+                continue
+            prev_ratio = sw / prev_img.width() if prev_img.width() > 0 else 1
+            page_y_offset += prev_img.height() * prev_ratio + 5
+        
+        # 该页面的显示区域
+        page_display_top = 10 + page_y_offset - (self.parent_window.current_position or 0)
+        page_h = img.height() * ratio
+        
+        # 如果该页面不在可视区域内 → 不绘制
+        if page_display_top + page_h < 0 or page_display_top > self.height():
+            return
+        
+        # === 将原始X坐标转换为显示X坐标 ===
+        display_x = 10 + x_orig * ratio
+        
+        # 获取布局数据中的Y范围(用于限制竖线高度到六线谱区域)
+        layouts = getattr(self.parent_window, '_page_layouts', None)
+        line_top = page_display_top
+        line_bottom = page_display_top + page_h
+        
+        if layouts and page_idx < len(layouts):
+            page_layout = layouts[page_idx]
+            if sys_idx < len(page_layout.systems):
+                system = page_layout.systems[sys_idx]
+                # 系统的Y范围(原始坐标→显示坐标)
+                sys_top = page_display_top + system.y_tab_top * ratio
+                sys_bottom = page_display_top + system.y_tab_bottom * ratio
+                line_top = max(line_top, int(sys_top))
+                line_bottom = min(line_bottom, int(sys_bottom))
+        
+        # === 1. 绘制当前小节背景高亮 ===
+        if layouts and page_idx < len(layouts):
+            page_layout = layouts[page_idx]
+            if sys_idx < len(page_layout.systems):
+                system = page_layout.systems[sys_idx]
+                if meas_idx < len(system.measures):
+                    m_layout = system.measures[meas_idx]
+                    mx1 = 10 + m_layout.x_start * ratio
+                    mx2 = 10 + m_layout.x_end * ratio
+                    my1 = page_display_top + system.y_top * ratio
+                    my2 = page_display_top + system.y_bottom * ratio
+                    
+                    # 半透明淡蓝背景
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(QColor(59, 130, 246, 25))  # 淡蓝 10%透明
+                    painter.drawRect(int(mx1), int(my1), int(mx2 - mx1), int(my2 - my1))
+                    
+                    # 小节号标签
+                    painter.setPen(QColor(59, 130, 246, 180))
+                    painter.setFont(QFont("Arial", 8))
+                    painter.drawText(int(mx1) + 2, int(my1) + 10, f"{meas_idx + 1}")
+        
+        # === 2. 绘制竖线(Playhead Line) ===
+        # 主竖线: 红色半透明, 宽2px
+        pen = QPen(QColor(239, 68, 68, 200))  # 红色
+        pen.setWidth(2)
+        painter.setPen(pen)
+        painter.drawLine(int(display_x), max(0, int(line_top)), 
+                        int(display_x), min(self.height(), int(line_bottom)))
+        
+        # 发光效果: 在主竖线两侧各画一条更细更透明的线
+        glow_pen = QPen(QColor(239, 68, 68, 60))
+        glow_pen.setWidth(4)
+        painter.setPen(glow_pen)
+        painter.drawLine(int(display_x), max(0, int(line_top)), 
+                        int(display_x), min(self.height(), int(line_bottom)))
+        
+        # === 3. 绘制顶部三角形指示器 ===
+        tri_size = 6
+        tri_y = max(0, int(line_top)) - 2
+        triangle = QPolygonF([
+            QPointF(display_x, tri_y),
+            QPointF(display_x - tri_size, tri_y - tri_size),
+            QPointF(display_x + tri_size, tri_y - tri_size),
+        ])
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(239, 68, 68, 220))
+        painter.drawPolygon(triangle)
 
     def mouseDoubleClickEvent(self,event:QMouseEvent)->None:
         """双击谱面 - 优先检测是否点击了已有标注(编辑)，否则新建"""
@@ -1242,6 +1377,15 @@ class DisplayWindow(QMainWindow):
         self._audio_mode:str="all"            # 音频模式: "all"=全轨并轨(默认), "current"=仅当前轨, "off"=关闭
         self._track_channels:List[int]=[]     # 各音轨对应的MIDI通道号(全轨模式用)
         self._current_highlight:tuple=None    # 当前高亮音符(midi_pitch, time_ms)
+
+        # === Phase 3.5: 播放光标(Playhead) ===
+        # 布局数据: 由TabRenderer.render()生成, 包含每页/行/小节/拍的精确坐标
+        # 类型: List[PageLayout]
+        self._page_layouts:list=[]
+        # 当前播放光标位置信息 (由音频回调或_tick更新)
+        # 格式: (page_idx, system_idx, measure_idx, beat_idx, x_in_page)
+        #       x_in_page = 光标在页面内的X坐标(原始渲染分辨率)
+        self._playhead_info:tuple=None
 
         self.init_ui()
         self._load_annotations()               # 加载已有标注
@@ -1601,6 +1745,8 @@ class DisplayWindow(QMainWindow):
             )
             self.images = pixmaps
             self.loaded_images = pixmaps
+            # 捕获布局数据(播放光标功能依赖此数据)
+            self._page_layouts = getattr(renderer, 'last_layouts', [])
             self.display_widget.set_images(pixmaps)
             
             # 并轨模式: 保持当前播放位置不变（仅切换视觉）
@@ -1860,13 +2006,22 @@ class DisplayWindow(QMainWindow):
                 self._midi_converter.convert_all_tracks(self._gtp_song)
             )
             
-            # 为每个通道设置吉他音色
+            # 为每个(非鼓轨)通道设置吉他音色
+            # 注意: 通道9是MIDI打击乐保留通道，需要设为鼓组bank
             if self._synth_engine and self._track_channels:
                 for ch in set(self._track_channels):
-                    try:
-                        self._synth_engine.set_instrument(ch, 27)  # 27=Clean Electric Guitar
-                    except Exception:
-                        pass
+                    if ch == 9:
+                        # 鼓组: Bank MSB=128 (Percussion) + Program=0 (Standard Kit)
+                        try:
+                            self._synth_engine.set_drum_kit(ch, kit=0)
+                        except Exception:
+                            pass
+                    else:
+                        # 旋律乐器: 吉他音色
+                        try:
+                            self._synth_engine.set_instrument(ch, 27)  # 27=Clean Electric Guitar
+                        except Exception:
+                            pass
         else:
             # 仅当前轨: 只转换当前选中的音轨
             self._track_channels = []
@@ -1886,6 +2041,158 @@ class DisplayWindow(QMainWindow):
             mode_label = "全轨并轨" if self._audio_mode == "all" else f"仅当前轨(#{self.gtp_current_track+1})"
             print(f"[Audio] 事件重建[{mode_label}]: {len(self._audio_events)}个事件, "
                   f"{len(self._track_channels)}个通道")
+        
+        # 构建播放光标时间线(依赖布局数据+音频事件)
+        self._build_playhead_timeline()
+
+    def _build_playhead_timeline(self)->None:
+        """
+        构建播放光标时间线 - 将每个拍(Beat)映射到其音频时间和屏幕X坐标
+        
+        原理:
+          遍历所有页面的布局数据(PageLayout→SystemLayout→MeasureLayout→BeatLayout)，
+          结合GTP歌曲的BPM和时间签名，计算每个拍对应的音频时间位置(ms)，
+          生成一个按时间排序的时间线索引。
+        
+        数据结构 _playhead_timeline:
+          List[dict], 每个元素包含:
+            - time_ms:   该拍的起始音频时间(毫秒)
+            - page_idx:  所在页面索引
+            - sys_idx:   所在系统(行)索引
+            - meas_idx:  所在小节索引
+            - beat_idx:  该小节内的拍索引
+            - x_center:  该拍的中心X坐标(原始渲染分辨率)
+            - x_start:   该拍的起始X坐标
+            - x_end:     该拍的结束X坐标
+        
+        使用方式:
+          在 _update_playhead(time_ms) 中通过二分查找快速定位当前拍。
+        """
+        self._playhead_timeline = []
+        
+        if not self._page_layouts or not self._gtp_song:
+            return
+        
+        # 获取BPM(取第一个tempo标记, 默认120)
+        bpm = 120
+        if hasattr(self._gtp_song, 'tempo_changes') and self._gtp_song.tempo_changes:
+            bpm = self._gtp_song.tempo_changes[0].value if self._gtp_song.tempo_changes[0].value > 0 else 120
+        elif hasattr(self._gtp_song, 'tempo') and self._gtp_song.tempo > 0:
+            bpm = self._gtp_song.tempo
+        
+        # 每毫秒对应的tick数
+        ticks_per_beat = 480
+        ms_per_tick = 60000.0 / (bpm * ticks_per_beat)
+        
+        current_time_ticks = 0
+        current_time_ms = 0.0
+        
+        for page_idx, page in enumerate(self._page_layouts):
+            for sys_idx, system in enumerate(page.systems):
+                for meas_idx, m_layout in enumerate(system.measures):
+                    measure = m_layout.measure
+                    
+                    # 获取该小节的时值信息
+                    # 计算该小节总时长(tick)
+                    if hasattr(measure, 'time_signature'):
+                        ts = measure.time_signature
+                        numerator = getattr(ts, 'numerator', 4)
+                        denominator = getattr(ts, 'denominator', 4)
+                    else:
+                        numerator, denominator = 4, 4
+                    
+                    # 一个小节的tick数 = (numerator / denominator) * ticks_per_beat * 4
+                    # 例如 4/4拍 = 4 * 480 = 1920 ticks
+                    measure_ticks = int(numerator * ticks_per_beat * 4 / max(denominator, 1))
+                    
+                    beats_in_measure = m_layout.beats
+                    if not beats_in_measure:
+                        current_time_ticks += measure_ticks
+                        current_time_ms = current_time_ticks * ms_per_tick
+                        continue
+                    
+                    # 在该小节内分配各拍的时间
+                    # 简化处理: 均匀分配(不考虑实际时值变化)
+                    n_beats = len(beats_in_measure)
+                    tick_per_beat = measure_ticks // max(n_beats, 1)
+                    
+                    for beat_idx, b_layout in enumerate(beats_in_measure):
+                        entry = {
+                            'time_ms': current_time_ms,
+                            'page_idx': page_idx,
+                            'sys_idx': sys_idx,
+                            'meas_idx': meas_idx,
+                            'beat_idx': beat_idx,
+                            'x_center': b_layout.x_center,
+                            'x_start': b_layout.x_start,
+                            'x_end': b_layout.x_end,
+                            'y_top': system.y_tab_top,
+                            'y_bottom': system.y_tab_bottom,
+                        }
+                        self._playhead_timeline.append(entry)
+                        
+                        current_time_ticks += tick_per_beat
+                        current_time_ms = current_time_ticks * ms_per_tick
+    
+    def _update_playhead(self, time_ms: float = None)->None:
+        """
+        根据当前播放时间更新光标位置
+        
+        参数:
+            time_ms: 当前音频时间(毫秒)。None则从synth_engine获取。
+        
+        更新 self._playhead_info 为:
+            (page_idx, sys_idx, meas_idx, beat_idx, x_in_page, progress_in_beat)
+        其中 progress_in_beat ∈ [0,1) 表示当前拍内的进度。
+        """
+        if not self._playhead_timeline:
+            self._playhead_info = None
+            return
+        
+        # 获取当前时间
+        if time_ms is None and self._synth_engine:
+            time_ms = self._synth_engine.current_time_ms
+        if time_ms is None:
+            self._playhead_info = None
+            return
+        
+        # 二分查找: 找到 time_ms 对应的拍
+        import bisect
+        times = [e['time_ms'] for e in self._playhead_timeline]
+        idx = bisect.bisect_right(times, time_ms) - 1
+        
+        if idx < 0:
+            # 还没到第一个拍
+            entry = self._playhead_timeline[0]
+            self._playhead_info = (
+                entry['page_idx'], entry['sys_idx'], entry['meas_idx'],
+                -1, entry['x_start'], 0.0
+            )
+        elif idx >= len(self._playhead_timeline) - 1:
+            # 已超过最后一个拍
+            entry = self._playhead_timeline[-1]
+            self._playhead_info = (
+                entry['page_idx'], entry['sys_idx'], entry['meas_idx'],
+                entry['beat_idx'], entry['x_end'], 1.0
+            )
+        else:
+            # 在两个拍之间 → 插值计算精确X坐标
+            curr = self._playhead_timeline[idx]
+            next_e = self._playhead_timeline[idx + 1]
+            
+            dt = next_e['time_ms'] - curr['time_ms']
+            if dt > 0:
+                progress = (time_ms - curr['time_ms']) / dt
+            else:
+                progress = 0.0
+            
+            # X坐标线性插值
+            x_pos = curr['x_center'] + progress * (next_e['x_center'] - curr['x_center'])
+            
+            self._playhead_info = (
+                curr['page_idx'], curr['sys_idx'], curr['meas_idx'],
+                curr['beat_idx'], x_pos, progress
+            )
 
     def _tick(self)->None:
         """播放定时器回调 - 每帧执行"""
@@ -1909,6 +2216,9 @@ class DisplayWindow(QMainWindow):
         elif self.current_position>=self.total_scroll_distance:
             self.current_position=self.total_scroll_distance
             self.stop_playback()
+
+        # 更新播放光标位置(每帧同步)
+        self._update_playhead()
 
         self.display_widget.update()
         self.update_progress_display()

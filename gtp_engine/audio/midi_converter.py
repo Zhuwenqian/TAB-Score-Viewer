@@ -87,8 +87,15 @@ class MidiConverter:
     MULTI_TRACK_START_CHANNEL = 0
     
     # MIDI标准中通道9(第10通道)是打击乐/鼓组保留通道，不能用于旋律乐器
-    # 多轨并轨时自动跳过此通道
+    # 多轨并轨时自动跳过此通道（非鼓轨）
     PERCUSSION_CHANNEL = 9
+    
+    # GM标准鼓音映射范围: MIDI note 35-81 对应不同鼓/镲音色
+    # 常用值: 36=底鼓, 38/40=军鼓, 42=闭镲, 44=开镲, 49=碎镲, 51=吊镲
+    DRUM_NOTE_RANGE = (35, 82)
+    
+    # 鼓轨识别关键词(轨道名称匹配)
+    DRUM_KEYWORDS = ('drum', 'percussion', 'drums', 'perc', '鼓')
     
     def __init__(self, ticks_per_beat: int = None):
         """
@@ -155,6 +162,55 @@ class MidiConverter:
         
         return events
     
+    @staticmethod
+    def is_drum_track(track) -> bool:
+        """
+        检测一个音轨是否为鼓轨(打击乐轨道)
+        
+        检测策略(按优先级):
+          1. 名称匹配: 轨道名称包含 drum/percussion/鼓 等关键词
+          2. 音符特征: 鼓轨的音符特征是 fret == midi_pitch
+             （因为鼓轨不使用弦/品格系统，直接存储MIDI鼓音编号）
+             且所有音符的pitch都在GM鼓音范围(35-81)内
+        
+        参数:
+            track: GTPTrack 音轨对象
+        
+        返回:
+            True=是鼓轨, False=普通旋律轨
+        """
+        # === 策略1: 名称匹配 ===
+        name_lower = track.name.lower()
+        if any(kw in name_lower for kw in MidiConverter.DRUM_KEYWORDS):
+            return True
+        
+        # === 策略2: 音符特征检测 ===
+        # 鼓轨关键特征: fret == midi_pitch (鼓音直接存为MIDI编号，非品格计算值)
+        #              且 pitch 在 GM 鼓音范围(35-81)
+        sample_notes = []
+        for m in track.measures[:8]:  # 取前8小节样本
+            for b in m.beats:
+                for n in b.notes:
+                    sample_notes.append((n.midi_pitch, getattr(n, 'fret', None)))
+                    if len(sample_notes) >= 20:
+                        break
+                if len(sample_notes) >= 20:
+                    break
+            if len(sample_notes) >= 20:
+                break
+        
+        if len(sample_notes) >= 5:  # 至少5个音符才做特征判断
+            lo, hi = MidiConverter.DRUM_NOTE_RANGE
+            # 检查是否所有样本都满足: (1)在鼓音范围 (2)fret==pitch
+            all_drum_like = all(
+                lo <= p <= hi and f == p
+                for p, f in sample_notes
+            )
+            if all_drum_like:
+                return True
+        
+        return False
+    
     def convert_all_tracks(self, song) -> Tuple[List[MidiEvent], List[int]]:
         """
         转换歌曲所有音轨为合并的 MIDI 事件序列（并轨模式）
@@ -198,12 +254,20 @@ class MidiConverter:
         ))
         
         # 遍历每个音轨，各自转换后合并
-        # 通道分配规则: 跳过通道9(打击乐保留通道)，其余0-15共15个可用
-        _available_channels = [c for c in range(16) if c != self.PERCUSSION_CHANNEL]
+        # 通道分配规则:
+        #   - 鼓轨(检测到) → 固定分配通道9(MIDI打击乐保留通道)
+        #   - 旋律轨 → 从可用通道中循环分配(0-8, 10-15，跳过通道9)
+        _melody_channels = [c for c in range(16) if c != self.PERCUSSION_CHANNEL]
+        _melody_idx = 0  # 旋律轨通道计数器
         
         for track_idx, track in enumerate(song.tracks):
-            # 从可用通道列表中循环分配（跳过打击乐通道9）
-            ch = _available_channels[track_idx % len(_available_channels)]
+            # === 鼓轨检测与通道分配 ===
+            if self.is_drum_track(track):
+                ch = self.PERCUSSION_CHANNEL  # 鼓轨固定使用通道9
+            else:
+                ch = _melody_channels[_melody_idx % len(_melody_channels)]
+                _melody_idx += 1
+            
             track_channels.append(ch)
             
             # 复用 convert 的逻辑但指定该轨道的通道

@@ -73,6 +73,9 @@ class TabRenderer:
     def __init__(self, config: Optional[RenderConfig] = None):
         self.cfg = config or RenderConfig()
         self._layout_engine = TabLayoutEngine(self.cfg)
+        # 上次渲染的布局数据(由render()自动填充)
+        # 类型: List[PageLayout], 每页包含SystemLayout→MeasureLayout→BeatLayout坐标
+        self.last_layouts: list = []
 
     def render(self, song: GTPSong, track_index: int = 0,
                page_width: int = None, page_height: int = None) -> List[QPixmap]:
@@ -87,6 +90,10 @@ class TabRenderer:
             
         返回:
             QPixmap列表，每元素对应一页乐谱图像
+            
+        注意:
+            布局数据会同时存储在 self.last_layouts 属性中，
+            可用于播放光标(Playhead)等需要坐标信息的后续功能。
         """
         # 获取目标音轨
         if track_index >= len(song.tracks):
@@ -98,6 +105,9 @@ class TabRenderer:
         
         # 执行布局计算
         pages_layout = self._layout_engine.layout(track, pw, ph)
+        
+        # 存储布局数据供外部使用(播放光标等功能依赖此数据)
+        self.last_layouts = pages_layout
         
         # 为每页生成图像
         pixmaps: List[QPixmap] = []

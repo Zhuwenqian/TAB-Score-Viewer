@@ -391,6 +391,50 @@ class SynthEngine:
         if self._synth:
             self._synth.program_change(channel, program)
     
+    def set_drum_kit(self, channel: int = 9, kit: int = 0) -> None:
+        """
+        设置指定通道为GM鼓组音色
+        
+        原理: GM标准中，鼓组音色位于 Bank MSB=128 (Percussion Bank)，
+              与旋律乐器(Bank 0)完全分离。必须通过 CC#0 (Bank Select MSB)
+              切换到鼓组bank后，再选择鼓组program。
+        
+        参数:
+            channel: MIDI通道(默认9=打击乐保留通道)
+            kit:     鼓组程序号(GM标准):
+                     0 = Standard Kit(标准鼓组)
+                     1 = Room Kit(房间鼓组)
+                     2 = Power Kit(强力鼓组)
+                     3 = Electronic Kit(电子鼓组)
+                     ... 等等
+        
+        注意: 此方法必须在 load_events() 之前调用，
+              否则通道可能已被设置为旋律乐器音色导致鼓声异常。
+        
+        GM 鼓组常用 note 映射:
+          35=Kick Drum 2   | 36=Bass Drum 1(底鼓) | 37=Side Stick
+          38=Acoustic Snare(军鼓) | 39=Hand Clap    | 40=Electric Snare
+          41=Low Floor Tom  | 42=Closed HiHat(闭镲)| 43=High Floor Tom
+          44=Pedal HiHat(踏板镲)| 45=Low Tom      | 46=Open HiHat(开镲)
+          47=Low-Mid Tom    | 48=Hi-Mid Tom       | 49=Crash Cymbal 1(碎镲)
+          50=High Tom       | 51=Ride Cymbal 1(吊镲)| 52=Chinese Cymbal
+          53=Ride Bell     | 54=Tambourine       | 55=Splash Cymbal
+          56=Cowbell       | 57=Crash Cymbal 2   | 58=Vibraslap
+          59=Ride Cymbal 2 | 60=Hi Bongo         | 61=Low Bongo
+          62=Conga Mute Hi | 63=Conga Open Hi    | 64=Conga Low
+          65=Timbale High  | 66=Timbale Low      | 67=Agogo High
+          68=Agogo Low     | 69=Cabasa           | 70=Maracas
+          71=Short Whistle | 72=Long Whistle     | 73=Short Guiro
+          74=Long Guiro    | 75=Claves           | 76=Hi Wood Block
+          77=Low Wood Block| 78=M Triangle Open  | 79=M Triangle Closed
+          80=Shaker        | 81=Jingle Bell      | 82=Bell Tree
+        """
+        if self._synth:
+            # CC#0 = Bank Select MSB, 值128 = Percussion Bank (GM标准)
+            self._synth.cc(channel, 0, 128)
+            # Program Change 选择具体鼓组类型
+            self._synth.program_change(channel, kit)
+    
     def load_events(self, events: list, bpm: int = 120,
                     ticks_per_beat: int = 480) -> None:
         """
