@@ -1,0 +1,19 @@
+# 依赖库列表
+# 安装命令: pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# GUI框架
+PyQt5>=5.15
+
+# PDF解析与渲染
+PyMuPDF>=1.23
+
+# 图片格式支持(WEBP等)
+Pillow>=10.0
+
+# Guitar Pro 文件解析 (开源项目: pyguitarpro)
+pyguitarpro>=0.11
+
+# MIDI音频合成 (FluidSynth Python绑定)
+# 许可证: LGPL 2.1
+# 仓库: https://github.com/FluidSynth/fluidSynth
+pyfluidsynth>=1.4.0
