@@ -16,7 +16,7 @@
   - 内部依赖: gtp_engine.models.*, gtp_engine.utils.constants
 
 创建日期: 2026-06-06
-最后更新: 2026-06-06 (v1.1.2: 移除每系统INFO_SECTION_HEIGHT空白; 重写分页Y坐标重置)
+最后更新: 2026-06-07 (v1.2.2: SystemLayout新增string_count字段, 动态弦数支持)
 ============================================================
 """
 
@@ -76,13 +76,15 @@ class SystemLayout:
       y_top:          该行顶部Y坐标（信息区下方）
       y_bottom:       该行底部Y坐标（含符干符尾空间）
       y_tab_top:      六线谱区域顶部Y（第1弦线位置）
-      y_tab_bottom:   六线谱区域底部Y（第6弦线位置）
+      y_tab_bottom:   六线谱区域底部Y（最后一根弦线位置）
       measures:       该行包含的小节布局列表
+      string_count:   弦数量(从GTP文件读取, 4/5/6/7弦等)
     """
     y_top: int = 0
     y_bottom: int = 0
     y_tab_top: int = 0
     y_tab_bottom: int = 0
+    string_count: int = 6  # 默认6弦吉他
     measures: List[MeasureLayout] = field(default_factory=list)
 
 
@@ -152,12 +154,13 @@ class TabLayoutEngine:
         # 第一步：将所有小节按行分组（自动换行）
         systems_raw = self._group_measures_into_systems(track.measures, usable_width)
         
-        # 第二步：为每个系统分配精确坐标
+        # 第二步：为每个系统分配精确坐标（传入弦数用于动态计算高度）
         systems = self._assign_system_coordinates(
             systems_raw, 
             self.cfg.PAGE_MARGIN_LEFT,
             self.cfg.PAGE_MARGIN_TOP,
-            usable_width
+            usable_width,
+            track.string_count  # 动态弦数
         )
         
         # 第三步：按页面高度分页
@@ -260,7 +263,8 @@ class TabLayoutEngine:
 
     def _assign_system_coordinates(self, rows: List[List[GTPMeasure]],
                                     start_x: int, start_y: int,
-                                    usable_width: int) -> List[SystemLayout]:
+                                    usable_width: int,
+                                    string_count: int = 6) -> List[SystemLayout]:
         """
         为每个系统和其中的小节/拍分配精确坐标
         
@@ -269,6 +273,7 @@ class TabLayoutEngine:
             start_x:       起始X坐标
             start_y:       起始Y坐标（第一行顶部）
             usable_width:  可用宽度
+            string_count:  弦数量(从GTP文件读取, 用于计算六线谱高度)
             
         返回:
             SystemLayout 列表，每个元素包含完整的坐标信息
@@ -276,14 +281,15 @@ class TabLayoutEngine:
         systems: List[SystemLayout] = []
         current_y = start_y
         
-        # 六线谱高度 = (弦数-1) × 弦间距
-        tab_height = (6 - 1) * self.cfg.TAB_LINE_SPACING
+        # 六线谱高度 = (弦数-1) × 弦间距（动态根据实际弦数计算）
+        tab_height = (string_count - 1) * self.cfg.TAB_LINE_SPACING
         # 一行总高度 = 六线谱高度 + 符干空间 + 行间距
         row_total_height = tab_height + self.cfg.STEM_HEIGHT + self.cfg.LINE_SPACING
         
         for row_idx, row_measures in enumerate(rows):
             # 创建系统布局
             system = SystemLayout()
+            system.string_count = string_count  # 记录弦数(供渲染器使用)
             system.y_top = current_y
             # 注意: 不再为每个系统添加 INFO_SECTION_HEIGHT
             # 页面头部信息(标题/轨道名/调弦/BPM)只在 _render_page 中绘制一次，
