@@ -136,7 +136,7 @@ class RenderConfig:
     # --- 音符/品格数字 ---
     NOTE_FONT_SIZE = 10              # 品格数字字体大小(px) - 调整效果: 越大数字越清晰但占用空间多
     NOTE_FONT_FAMILY = "Arial"       # 品格数字字体族 - 推荐使用等宽字体保证对齐
-    NOTE_MIN_SPACING = 22            # 相邻拍之间的最小水平间距(px) - 调整效果: 越小越紧凑，越大越宽松(推荐18-26)
+    NOTE_MIN_SPACING = 26            # 相邻拍之间的最小水平间距(px) - 调整效果: 越小越紧凑，越大越宽松(推荐18-26)
     NOTE_EXTRA_WIDTH_PER_CHAR = 7    # 多位数品格数字的额外宽度(px/字符) - 如品10比品0多占10px
 
     # --- 符干与符尾 ---

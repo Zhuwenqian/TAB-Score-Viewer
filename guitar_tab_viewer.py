@@ -2124,8 +2124,9 @@ class SettingsWindow(QMainWindow):
         import subprocess, platform
         try:
             if platform.system() == 'Windows':
-                # Windows: explorer /select 会打开文件夹并高亮选中该文件
-                subprocess.run(['explorer', '/select,', fpath], check=False)
+                # Windows: explorer /select,"路径" 需要将 /select, 和路径合并为一个参数，
+                # 否则 subprocess 会把它们当作两个独立参数传入，导致资源管理器无法正确定位
+                subprocess.run(['explorer', f'/select,{fpath}'], check=False)
             elif platform.system() == 'Linux':
                 # Linux: 尝试多种文件管理器
                 for cmd in [
