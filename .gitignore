@@ -10,3 +10,7 @@ gtp_engine/parser/__pycache__/gtp_parser.cpython-313.pyc
 _diag_demo.py
 gtp_engine/renderer/__pycache__/tab_renderer.cpython-313.pyc
 _test_solo.py
+
+# SoundFont文件(超过GitHub 100MB限制，需本地保留)
+soundfont/
+*.sf2
