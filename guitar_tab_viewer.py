@@ -23,7 +23,7 @@
           15. 播放性能优化 - 图片缩放缓存+UI节流更新，解决播放卡顿
 
 创建日期: 2026-06-06
-最后修改: 2026-06-09 (v1.6.4 - 修复点击播放+分离标注窗口+命中区域修正)
+最后修改: 2026-06-09 (v1.6.5 - 修复推弦音高泄漏+点击跳转保护)
 
 依赖库:
   - PyQt5 >= 5.15     # GUI框架(窗口/控件/信号槽/绘图/PDF导出)
@@ -1327,6 +1327,8 @@ class DisplayWidget(QWidget):
                     
                     # 跳转到新位置
                     self.parent_window.current_position = new_position
+                    # 设置点击跳转目标(防止_tick()用音频时间覆盖此位置)
+                    self.parent_window._click_jump_target = new_position
                     self.parent_window.update_progress_display()
                     
                     # 如果音频引擎可用，同步跳转音频时间
@@ -1874,6 +1876,10 @@ class DisplayWindow(QMainWindow):
         # 数据结构: List[dict]，每个元素包含 time_ms/scroll_y/page_idx/sys_idx/meas_idx/beat_idx/x_center
         self._playhead_timeline:list=[]  # 修复: 初始化空列表，防止_update_playhead()访问时报错
 
+        # === 点击跳转播放目标(防止_tick()音频时间覆盖点击位置) ===
+        # 当用户点击谱面跳转播放时设置，_tick()在音频时间未追上之前使用此值
+        self._click_jump_target:float = -1.0  # -1表示无待处理跳转
+        
         # === 总音频时长(ms)(用于进度条百分比计算) ===
         self._total_audio_duration_ms:float=0.0
 
@@ -2357,6 +2363,7 @@ class DisplayWindow(QMainWindow):
     def stop_playback(self)->None:
         """停止播放"""
         self.timer.stop()
+        self._click_jump_target = -1.0  # 清除点击跳转目标
         # Phase 3: 同时停止音频引擎
         if self._synth_engine and self._audio_enabled:
             self._synth_engine.stop()
@@ -2885,8 +2892,25 @@ class DisplayWindow(QMainWindow):
             else:
                 effective_time = audio_time_ms
 
-            self.current_position = self._time_to_scroll_pos(effective_time)
-            self.play_time = effective_time / 1000.0
+            # === 点击跳转保护: 如果有待处理的点击跳转目标，优先使用它 ===
+            # 原因: 点击谱面后音频引擎刚开始播放，audio_time_ms接近0，
+            #       _time_to_scroll_pos(接近0)会返回接近0的位置，覆盖掉用户点击的位置
+            # 策略: 当音频时间推导出的位置 < 跳转目标时，保持使用跳转目标
+            #       当音频时间追上或超过目标后，恢复正常的时间驱动模式
+            if self._click_jump_target >= 0:
+                time_based_pos = self._time_to_scroll_pos(effective_time)
+                if time_based_pos < self._click_jump_target:
+                    # 音频还没追上 → 保持点击位置
+                    self.current_position = self._click_jump_target
+                    self.play_time = effective_time / 1000.0
+                else:
+                    # 音频已追上 → 清除标记，恢复正常模式
+                    self.current_position = time_based_pos
+                    self.play_time = effective_time / 1000.0
+                    self._click_jump_target = -1.0  # 清除跳转目标
+            else:
+                self.current_position = self._time_to_scroll_pos(effective_time)
+                self.play_time = effective_time / 1000.0
 
             # 进度百分比基于音频时间
             total_dur = getattr(self, '_total_audio_duration_ms', 0) or 1

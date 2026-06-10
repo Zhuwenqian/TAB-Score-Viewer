@@ -359,6 +359,9 @@ class MidiConverter:
                 # 调用开源项目: guitarpro (PyGuitarPro库) 解析的BendEffect数据
                 # MIDI Pitch Bend规范: 值范围0-16383, 中值8192=无弯音, 每半音≈8192
                 # BendData.value单位: 四分之一音(cent), 25=1/4音, 50=1/2音, 100=Full(全音)
+                #
+                # 重要: 无论是否有释放段(has_release)，都必须在note_off时复位pitch_bend到8192！
+                # 否则弯音状态会持续影响后续同通道的所有音符(导致后面音都变高/变低)
                 if note.bend and note.bend.value > 0:
                     bend_value = self._bend_to_midi_pitch(note.bend)
                     if bend_value != 8192:  # 非零弯音才生成事件
@@ -381,6 +384,8 @@ class MidiConverter:
                             ))
                 
                 # === 生成 note_off 事件(在音符结束时触发) ===
+                # 注意: pitch_bend复位放在note_off之前或同时处理，
+                # 确保当前音符结束后弯音状态不影响下一个音符
                 events.append(MidiEvent(
                     time=beat_tick + actual_duration,
                     type="note_off",
@@ -388,6 +393,19 @@ class MidiConverter:
                     pitch=note.midi_pitch,
                     velocity=0  # note_off 的 velocity 固定为0
                 ))
+                
+                # === 关键修复: 始终在note_off后复位pitch_bend(防止影响后续音符) ===
+                # 即使没有has_release，也要复位！否则弯音会"泄漏"到后面的音符
+                if note.bend and note.bend.value > 0:
+                    # 仅当上面没有通过has_release发送过复位事件时才发送(避免重复)
+                    if not (note.bend.has_release):
+                        events.append(MidiEvent(
+                            time=beat_tick + actual_duration + 1,  # note_off之后1tick(确保先关音再复位)
+                            type="pitch_bend",
+                            channel=channel,
+                            pitch=8192,  # 强制回到无弯音状态(中值)
+                            velocity=0
+                        ))
             
             # 移动到下一拍
             beat_tick += beat_ticks
