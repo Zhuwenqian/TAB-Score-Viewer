@@ -23,7 +23,7 @@
           15. 播放性能优化 - 图片缩放缓存+UI节流更新，解决播放卡顿
 
 创建日期: 2026-06-06
-最后修改: 2026-06-09 (v1.6.3 - 多项Bug修复+推弦MIDI+点击播放)
+最后修改: 2026-06-09 (v1.6.4 - 修复点击播放+分离标注窗口+命中区域修正)
 
 依赖库:
   - PyQt5 >= 5.15     # GUI框架(窗口/控件/信号槽/绘图/PDF导出)
@@ -64,7 +64,7 @@ from PyQt5.QtWidgets import (
     QProgressBar, QComboBox, QTabWidget, QToolButton, QRadioButton
 )
 from PyQt5.QtGui import (
-    QPixmap, QPainter, QPen, QColor, QFont, QIcon,
+    QPixmap, QPainter, QPen, QColor, QFont, QFontMetrics, QIcon,
     QImage, QCursor, QPainterPath, QLinearGradient, QRadialGradient,
     QMouseEvent, QKeyEvent, QWheelEvent, QResizeEvent, QShowEvent,
     QKeySequence, QPalette, QBrush, QTransform, QPolygonF
@@ -812,11 +812,102 @@ class _SpeedCurveCanvas(QWidget):
         self._dragging=False
 
 
+class AnnotationCreateDialog(QDialog):
+    """
+    新建标注对话框 - 专门用于创建新标注(无删除功能)
+    
+    与AnnotationEditDialog的区别:
+      - 标题: "新建标注" vs "编辑标注"
+      - 无删除按钮(新标注不存在删除概念)
+      - 只有 [确定] [取消] 两个按钮
+    
+    调用方式:
+      dialog = AnnotationCreateDialog(parent, x, y)
+      if dialog.exec_() == QDialog.Accepted:
+          ann = dialog.get_annotation()  # 获取新建的标注
+    """
+
+    def __init__(self, parent=None, x: float = 0.1, y: float = 0.1):
+        super().__init__(parent)
+        self.annotation = Annotation(
+            id=f"ann_{uuid.uuid4().hex[:8]}", x=x, y=y,
+            text="新标注-双击编辑修改内容"
+        )
+        self._temp_color = self.annotation.color
+        self.init_ui()
+
+    def init_ui(self)->None:
+        self.setWindowTitle("新建标注"); self.setFixedSize(420,360)
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {THEME_COLORS['bg_primary']}; }}
+            QLabel {{ color: {THEME_COLORS['text_primary']}; font-family: 'Microsoft YaHei'; }}
+            QTextEdit {{ background-color: {THEME_COLORS['bg_surface']}; color: {THEME_COLORS['text_primary']};
+                        border: 1px solid {THEME_COLORS['border']}; border-radius: 6px; padding: 6px; }}
+            QSpinBox {{ background-color: {THEME_COLORS['bg_surface']}; color: {THEME_COLORS['text_primary']};
+                        border: 1px solid {THEME_COLORS['border']}; border-radius: 4px; padding: 4px; }}
+            QCheckBox {{ color: {THEME_COLORS['text_primary']}; }}
+            QPushButton {{ background-color: {THEME_COLORS['primary']}; color: white; border: none;
+                           border-radius: 6px; padding: 8px 20px; font-family: 'Microsoft YaHei'; }}
+            QPushButton:hover {{ background-color: {THEME_COLORS['primary_hover']}; }}
+        """)
+        layout=QVBoxLayout(self)
+        
+        # 位置信息(只读显示)
+        pg=QGroupBox("位置坐标"); pl=QHBoxLayout(pg)
+        pl.addWidget(QLabel(f"X: {self.annotation.x:.1%}  Y: {self.annotation.y:.1%}")); layout.addWidget(pg)
+        
+        # 标注内容
+        tg=QGroupBox("标注内容"); tl=QVBoxLayout(tg)
+        self.text_edit=QTextEdit(); self.text_edit.setPlainText(self.annotation.text)
+        self.text_edit.setPlaceholderText("输入演奏技巧说明..."); tl.addWidget(self.text_edit); layout.addWidget(tg)
+        
+        # 字体设置
+        fg=QGroupBox("字体"); fl=QHBoxLayout(fg)
+        fl.addWidget(QLabel("大小:")); self.font_size_spin=QSpinBox()
+        self.font_size_spin.setRange(8,72); self.font_size_spin.setValue(self.annotation.font_size); fl.addWidget(self.font_size_spin)
+        self.bold_check=QCheckBox("加粗"); self.bold_check.setChecked(self.annotation.is_bold); fl.addWidget(self.bold_check)
+        fl.addStretch(); layout.addWidget(fg)
+        
+        # 颜色选择
+        cg=QGroupBox("颜色"); cl=QHBoxLayout(cg)
+        self.color_btn=QPushButton("选择颜色"); self.color_btn.clicked.connect(self._pick_color)
+        self.color_btn.setStyleSheet(f"background-color:{self.annotation.color};color:white;")
+        cl.addWidget(self.color_btn); cl.addStretch(); layout.addWidget(cg)
+
+        # 按钮区域: 确定 / 取消 (无删除按钮，因为是新建)
+        btn_layout=QHBoxLayout()
+        ok_btn=QPushButton("✓ 创建标注")
+        ok_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(ok_btn)
+
+        cancel_btn=QPushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+        cancel_btn.setStyleSheet(f"background-color:{THEME_COLORS['bg_surface']};color:{THEME_COLORS['text_secondary']};")
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+    def _pick_color(self)->None:
+        c=QColorDialog.getColor(QColor(self._temp_color),self,"选择标注颜色")
+        if c.isValid(): self._temp_color=c.name(); self.color_btn.setStyleSheet(f"background-color:{self._temp_color};color:white;")
+
+    def get_annotation(self)->Annotation:
+        """获取用户输入的标注数据"""
+        self.annotation.text=self.text_edit.toPlainText()
+        self.annotation.font_size=self.font_size_spin.value()
+        self.annotation.is_bold=self.bold_check.isChecked()
+        self.annotation.color=self._temp_color
+        return self.annotation
+
+
 class AnnotationEditDialog(QDialog):
     """
-    单个标注编辑对话框
+    编辑标注对话框 - 专门用于编辑已有标注(含删除功能)
     
-    功能: 编辑标注文本/字体/颜色/位置，支持删除当前标注
+    与AnnotationCreateDialog的区别:
+      - 标题: "编辑标注" vs "新建标注"
+      - 有删除按钮(🗑 删除此标注)
+      - 按钮布局: [确定保存] [🗑 删除此标注] [取消]
+      - 返回 should_delete 标记告知调用方是否执行删除
     
     调用方式:
       dialog = AnnotationEditDialog(parent, annotation)
@@ -869,7 +960,7 @@ class AnnotationEditDialog(QDialog):
         self.color_btn.setStyleSheet(f"background-color:{self.annotation.color};color:white;")
         cl.addWidget(self.color_btn); cl.addStretch(); layout.addWidget(cg)
 
-        # 按钮区域: 确定 / 删除 / 取消
+        # 按钮区域: 确定 / 删除 / 取消 (编辑模式特有删除按钮)
         btn_layout=QHBoxLayout()
         ok_btn=QPushButton("确定保存")
         ok_btn.clicked.connect(self.accept)
@@ -1150,11 +1241,10 @@ class DisplayWidget(QWidget):
         检测坐标(cx,cy)是否命中某个标注(用于拖动/编辑/悬停删除)
         
         原理: 遍历所有标注，将相对坐标映射到屏幕绝对坐标，
-              使用QFontMetrics精确计算标注文字的实际渲染宽度，
-              检测鼠标是否落在标注的包围盒内(含容差)。
+              使用与_draw_one_ann完全相同的bg_rect计算方式，
+              检测鼠标是否落在标注的描边矩形范围内。
         
-        改进: 使用fontMetrics精确计算而非粗略估算(len*font_size//2)，
-              确保中英文混合、不同字体大小时命中区域准确。
+        命中区域 = _draw_one_ann中的bg_rect(含padding+圆点)，即标注的完整可见区域
         
         参数:
             cx, cy: 鼠标在画布上的屏幕坐标(px)
@@ -1176,18 +1266,23 @@ class DisplayWidget(QWidget):
             sx = int(10 + (ww - 20) * ann.x)
             sy = int(base_y + total_h * ann.y)
             
-            # 使用QFontMetrics精确计算文字实际渲染宽度(替代粗略估算)
+            # 使用与_draw_one_ann完全相同的bg_rect计算方式
             font = QFont(ann.font_family, ann.font_size)
             if ann.is_bold:
                 font.setWeight(QFont.Bold)
             metrics = QFontMetrics(font)
-            tw = metrics.horizontalAdvance(ann.text)  # 精确文字宽度
+            tw = metrics.horizontalAdvance(ann.text)
+            th = metrics.height()
+            pad = 5  # 与_draw_one_ann中一致
             
-            # 命中范围: 精确文字宽度 + padding容差
-            pad = 8  # 内边距(与_draw_one_ann中的pad=5对应，稍大以增加点击友好度)
-            hit_w = tw // 2 + pad + 15  # 从中心点到边缘的距离 + 额外容差
-            hit_h = metrics.height() + pad + 10  # 文字高度 + 容差
-            if (sx - hit_w <= cx <= sx + hit_w) and (sy - hit_h <= cy <= sy + 8):
+            # bg_rect的四个边界 (与_draw_one_ann中QRect(x-pad,y-th-pad,tw+2*pad,th+2*pad)一致)
+            bg_left = sx - pad
+            bg_top = sy - th - pad
+            bg_right = sx + tw + pad
+            bg_bottom = sy + pad + 6  # 含圆点(drawEllipse(x-3,y+2,6,6))的高度
+            
+            # 检测是否在bg_rect描边范围内
+            if (bg_left <= cx <= bg_right) and (bg_top <= cy <= bg_bottom):
                 return ann
         return None
 
@@ -1198,6 +1293,9 @@ class DisplayWidget(QWidget):
         原理: 左键按下时按优先级处理:
               1. 检测是否命中标注 → 进入拖动模式
               2. 未命中标注 → 跳转到点击位置并开始播放(单击=跳转+播放)
+              
+        点击位置计算: 基于鼠标Y坐标在总内容高度中的相对比例，
+                      映射到scroll_y(0~total_scroll_distance)
         """
         if (event.button() == Qt.LeftButton and
                 self.parent_window and self.parent_window.images):
@@ -1212,35 +1310,42 @@ class DisplayWidget(QWidget):
                 return
             
             # === 未命中标注 → 点击谱面跳转到该位置并开始播放 ===
-            # 计算点击位置对应的scroll_y(相对于当前滚动位置的偏移)
-            click_y = event.y()  # 鼠标在画布中的Y坐标
-            new_position = self.parent_window.current_position + click_y - (self.height() / 2)
-            # 限制在有效范围内
-            new_position = max(0, min(new_position, self.parent_window.total_scroll_distance))
-            
-            # 跳转到新位置
-            self.parent_window.current_position = new_position
-            self.parent_window.update_progress_display()
-            
-            # 如果音频引擎可用，同步跳转音频时间
-            if (self.parent_window._synth_engine and 
-                self.parent_window._audio_enabled and
-                self.parent_window._midi_converter and
-                self.parent_window._gtp_song):
-                try:
-                    # 计算目标时间百分比
-                    if self.parent_window.total_scroll_distance > 0:
-                        pct = new_position / self.parent_window.total_scroll_distance * 100
-                        if hasattr(self.parent_window, '_on_progress_changed'):
-                            self.parent_window._on_progress_changed(pct)
-                except Exception as e:
-                    print(f"[ClickPlay] 音频跳转失败: {e}")
-            
-            self.update()  # 立即更新显示
-            
-            # 自动开始播放(如果尚未播放)
-            if not self.parent_window.timer.isActive():
-                self.parent_window.toggle_playback()
+            # 计算点击位置在总内容中的相对比例 → 映射到scroll_y
+            ww = self.width()
+            if ww > 20:
+                # 计算总内容高度(与paintEvent中一致)
+                total_h = sum(
+                    (img.height() * (ww - 20) / img.width()) + 5
+                    for img in self.parent_window.images if not img.isNull()
+                )
+                if total_h > 0 and self.parent_window.total_scroll_distance > 0:
+                    # 点击Y坐标 + 当前滚动偏移 = 在总内容中的绝对Y位置
+                    click_abs_y = self.parent_window.current_position + event.y()
+                    # 映射到scroll_y范围[0, total_scroll_distance]
+                    new_position = click_abs_y * self.parent_window.total_scroll_distance / total_h
+                    new_position = max(0, min(new_position, self.parent_window.total_scroll_distance))
+                    
+                    # 跳转到新位置
+                    self.parent_window.current_position = new_position
+                    self.parent_window.update_progress_display()
+                    
+                    # 如果音频引擎可用，同步跳转音频时间
+                    if (self.parent_window._synth_engine and 
+                        self.parent_window._audio_enabled and
+                        self.parent_window._midi_converter and
+                        self.parent_window._gtp_song):
+                        try:
+                            pct = new_position / self.parent_window.total_scroll_distance * 100
+                            if hasattr(self.parent_window, '_on_progress_changed'):
+                                self.parent_window._on_progress_changed(pct)
+                        except Exception as e:
+                            print(f"[ClickPlay] 音频跳转失败: {e}")
+                    
+                    self.update()  # 立即更新显示
+                    
+                    # 自动开始播放(如果尚未播放)
+                    if not self.parent_window.timer.isActive():
+                        self.parent_window.toggle_playback()
             
             event.accept()
             return
@@ -1627,37 +1732,48 @@ class DisplayWidget(QWidget):
         """
         双击谱面 - 优先检测是否点击了已有标注(编辑)，否则新建
         
-        注意: 删除标注后必须return，防止代码继续执行到新建标注分支
+        使用两种不同对话框:
+          - 点击已有标注 → AnnotationEditDialog(带删除按钮)
+          - 点击空白处 → AnnotationCreateDialog(无删除，只有确定/取消)
+        
+        命中区域: 基于_draw_one_ann中的bg_rect描边矩形(含padding)
         """
         if not self.parent_window or not self.parent_window.images: return
         cx,cy=event.x(),event.y()
         ww=self.width()
 
-        # === 先检测是否点击了已有标注(点击范围: 标注文字区域+周围容差) ===
+        # === 先检测是否点击了已有标注(命中区域=bg_rect描边范围) ===
         if self.parent_window.annotations and ww>20:
             total_h=sum((img.height()*(ww-20)/img.width())+5 for img in self.parent_window.images if not img.isNull())
             base_y=-self.parent_window.current_position
-            # 记录要操作的标注ID(防止对话框修改后ID变化)
             target_ann_id = None
             for ann in self.parent_window.annotations:
                 sx=int(10+(ww-20)*ann.x); sy=int(base_y+total_h*ann.y)
-                # 检测点击是否在标注区域内(基于字体大小估算范围)
-                hit_w=len(ann.text)*ann.font_size//2+20; hit_h=ann.font_size+16
-                if (sx-hit_w<=cx<=sx+hit_w) and (sy-hit_h<=cy<=sy+8):
+                # 使用与_draw_one_ann相同的bg_rect计算方式(基于QFontMetrics精确测量)
+                font = QFont(ann.font_family, ann.font_size)
+                if ann.is_bold:
+                    font.setWeight(QFont.Bold)
+                metrics = QFontMetrics(font)
+                tw = metrics.horizontalAdvance(ann.text); th = metrics.height()
+                pad = 5  # 与_draw_one_ann中一致
+                bg_left = sx - pad; bg_top = sy - th - pad
+                bg_right = sx + tw + pad; bg_bottom = sy + pad + 6  # 含圆点高度
+                # 检测是否在bg_rect范围内(标注的完整描边区域)
+                if (bg_left <= cx <= bg_right) and (bg_top <= cy <= bg_bottom):
                     target_ann_id = ann.id  # 记录目标标注ID
                     # 点击到已有标注 → 打开编辑对话框(集成全局撤销+删除)
                     self.parent_window._anno_save_snapshot()  # 修改前保存快照
                     dlg=AnnotationEditDialog(self,annotation=ann)
                     if dlg.exec_()==QDialog.Accepted:
                         if dlg.should_delete:
-                            # 用户点击了删除按钮 → 根据ID移除该标注(而非对象引用)
+                            # 用户点击了删除按钮 → 根据ID移除该标注
                             self.parent_window.annotations = [
                                 a for a in self.parent_window.annotations if a.id != target_ann_id
                             ]
                             self.parent_window._save_annotations()
                             self.set_annotations(self.parent_window.annotations)
                         else:
-                            # 正常保存修改(使用ID定位，防止对象引用失效)
+                            # 正常保存修改(使用ID定位)
                             updated=dlg.get_annotation()
                             idx=next((i for i,a in enumerate(self.parent_window.annotations) if a.id==target_ann_id),None)
                             if idx is not None:
@@ -1670,7 +1786,7 @@ class DisplayWidget(QWidget):
                             self.parent_window._undo_stack.pop()
                     return  # ← 关键: 必须return，防止继续执行新建标注
 
-        # === 未点击到任何标注 → 新建标注(通过add_annotation自动保存快照) ===
+        # === 未点击到任何标注 → 新建标注(使用专用创建对话框) ===
         rel_x=max(0,min(1,(cx-10)/(ww-20))) if ww>20 else 0
         if self.parent_window.images:
             total_h=sum((img.height()*(ww-20)/img.width())+5 for img in self.parent_window.images if not img.isNull())
@@ -1679,8 +1795,8 @@ class DisplayWidget(QWidget):
         else:
             rel_y=0.5
 
-        new_ann=Annotation(id=f"ann_{uuid.uuid4().hex[:8]}",x=rel_x,y=rel_y,text="新标注-双击编辑")
-        dlg=AnnotationEditDialog(self,annotation=new_ann)
+        # 使用AnnotationCreateDialog(专用新建对话框，无删除功能)
+        dlg=AnnotationCreateDialog(self, x=rel_x, y=rel_y)
         if dlg.exec_()==QDialog.Accepted:
             self.parent_window.add_annotation(dlg.get_annotation())  # 内部已调用 _anno_save_snapshot
 
