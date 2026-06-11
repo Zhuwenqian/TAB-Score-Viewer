@@ -23,7 +23,7 @@
           15. 播放性能优化 - 图片缩放缓存+UI节流更新，解决播放卡顿
 
 创建日期: 2026-06-06
-最后修改: 2026-06-09 (v1.6.9 - seek静音+点击位置修正+×按钮区域扩展)
+最后修改: 2026-06-09 (v1.7.0 - 点击位置非线性时间映射修复)
 
 依赖库:
   - PyQt5 >= 5.15     # GUI框架(窗口/控件/信号槽/绘图/PDF导出)
@@ -1342,27 +1342,41 @@ class DisplayWidget(QWidget):
                     self.parent_window.update_progress_display()
                     
                     # === 步骤2: 先处理音频seek(在start_playback之前!) ===
-                    # 直接调用seek而非_on_progress_changed，避免:
-                    #   a) _on_progress_changed覆写current_position
-                    #   b) _on_progress_changed触发display_widget.update()导致闪烁
                     # 重要: seek必须在play()之前调用，这样play()启动的线程才能使用正确的start_offset
                     if (self.parent_window._synth_engine and 
                         self.parent_window._audio_enabled and
                         self.parent_window._midi_converter and
                         self.parent_window._gtp_song):
                         try:
-                            pct = new_position / self.parent_window.total_scroll_distance * 100
-                            # 获取总时长
-                            if self.parent_window._audio_mode == "all":
-                                total_ms = self.parent_window._midi_converter.get_all_tracks_duration_ms(
-                                    self.parent_window._gtp_song)
+                            # === 使用反向时间线查找(非线性映射) ===
+                            # 原理: _build_playhead_timeline建立了time_ms↔scroll_y的非线性映射，
+                            #       不能用线性比例(pos/total*time)反推时间！
+                            #       必须用_scroll_pos_to_time()在timeline中对scroll_y做二分查找。
+                            # 
+                            # 为什么线性比例会"提前":
+                            #   密集区(16分音符): scroll_y大但time_ms少 → 线性比例高估时间 → 音频跳到后面
+                            #   用户感觉: 点击A处,音频从B处开始(B在A之后) → "提前了"
+                            
+                            if self.parent_window._playhead_timeline:
+                                # GTP模式: 用timeline反向查找(精确)
+                                target_ms = self.parent_window._scroll_pos_to_time(new_position)
                             else:
-                                total_ms = self.parent_window._midi_converter.get_total_duration_ms(
-                                    self.parent_window._gtp_song,
-                                    self.parent_window.gtp_current_track
+                                # 非GTP模式降级: 线性比例(图片/PDF文件无timeline)
+                                pct = new_position / self.parent_window.total_scroll_distance * 100
+                                if self.parent_window._audio_mode == "all":
+                                    total_ms = self.parent_window._midi_converter.get_all_tracks_duration_ms(
+                                        self.parent_window._gtp_song)
+                                else:
+                                    total_ms = self.parent_window._midi_converter.get_total_duration_ms(
+                                        self.parent_window._gtp_song,
+                                        self.parent_window.gtp_current_track
                                 )
-                            if total_ms > 0:
-                                target_ms = (pct / 100.0) * total_ms
+                                if total_ms > 0:
+                                    target_ms = (pct / 100.0) * total_ms
+                                else:
+                                    target_ms = 0
+                            
+                            if target_ms > 0:
                                 self.parent_window._synth_engine.seek(target_ms)
                         except Exception as e:
                             print(f"[ClickPlay] 音频跳转失败: {e}")
@@ -2885,6 +2899,61 @@ class DisplayWindow(QMainWindow):
         centered_pos = max(0, scroll_y - display_h / 2)
 
         return min(centered_pos, float(self.total_scroll_distance))
+    
+    def _scroll_pos_to_time(self, scroll_pos: float) -> float:
+        """
+        根据滚动Y位置反推对应的音频时间(ms) — _time_to_scroll_pos的逆运算
+        
+        原理:
+          在 _playhead_timeline 中对 scroll_y 做二分查找，
+          通过线性插值获取精确的 time_ms 值。
+          这是 _time_to_scroll_pos() 的完全对称逆操作。
+        
+        为什么不能用线性比例 (pos/total * total_time)?
+          因为 scroll_y 与 time_ms 的关系是非线性的：
+          - 音符密集区(16/32分音符): 相同时间内scroll_y变化大 → 每像素对应少时间
+          - 音符稀疏区(全/二分音符): 相同时间内scroll_y变化小 → 每像素对应多时间
+          用线性比例会在密集区高估时间(音频跳到点击位置后面)，导致"提前"感
+        
+        参数:
+            scroll_pos: 滚动位置(像素)，格式与current_position一致(已减去display_h/2的居中值)
+        
+        返回:
+            对应的音频时间(毫秒)
+        """
+        if not self._playhead_timeline or self.total_scroll_distance <= 0:
+            return 0.0
+        
+        # 边界处理
+        if scroll_pos <= 0:
+            return 0.0
+        if scroll_pos >= self.total_scroll_distance:
+            return self._total_audio_duration_ms
+        
+        # 将居中位置还原为原始scroll_y(与_time_to_scroll_pos中的操作相反)
+        display_h = max(self.display_widget.height(), 100)
+        raw_scroll_y = scroll_pos + display_h / 2
+        
+        # 对scroll_y做二分查找(与_time_to_scroll_pos中对time_ms做二分查找对称)
+        import bisect
+        scroll_ys = [e['scroll_y'] for e in self._playhead_timeline]
+        idx = bisect.bisect_right(scroll_ys, raw_scroll_y) - 1
+        
+        if idx < 0:
+            return self._playhead_timeline[0]['time_ms']
+        if idx >= len(self._playhead_timeline) - 1:
+            return self._playhead_timeline[-1]['time_ms']
+        
+        # 线性插值(与_time_to_scroll_pos对称)
+        curr = self._playhead_timeline[idx]
+        next_e = self._playhead_timeline[idx + 1]
+        dy = next_e['scroll_y'] - curr['scroll_y']
+        if dy <= 0:
+            return curr['time_ms']
+        t = (raw_scroll_y - curr['scroll_y']) / dy
+        time_ms = curr['time_ms'] + t * (next_e['time_ms'] - curr['time_ms'])
+        
+        return time_ms
 
     def _tick(self)->None:
         """
