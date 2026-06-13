@@ -164,9 +164,16 @@ class Annotation:
 
 @dataclass
 class SpeedCurvePoint:
-    """速度曲线控制点"""
+    """速度曲线控制点
+    position: 位置百分比 (0-100)，表示在播放进度的哪个位置
+    speed: 速度倍率基准值 (建议范围25-120)
+           实际播放速度 = base_speed * (speed / 50)
+           speed=50 → 与base_speed相同(1倍速，基准)
+           speed>50 → 比base_speed慢(总时长更长)
+           speed<50 → 比base_speed快(总时长更短)
+    """
     position: float = 0.0   # 位置百分比 (0-100)
-    speed: float = 50.0     # 速度值
+    speed: float = 50.0     # 速度倍率基准值(见类注释)
 
 
 # ============================================================
@@ -2156,10 +2163,10 @@ class DisplayWindow(QMainWindow):
         #   调小(如0.06)→ 同样speed下总时长更短 → 播放更快(适合快速浏览)
         #
         # 示例(base_speed范围350~700):
-        #   SCALE=0.06: speed=500 → 30秒 (快速浏览)
-        #   SCALE=0.08: speed=500 → 40秒 (默认，自然阅读)
-        #   SCALE=0.12: speed=500 → 60秒 (慢速精读)
-        self.TIME_SCALE = 0.08
+        #   SCALE=0.15: speed=500 → 75秒 (快速浏览)
+        #   SCALE=0.25: speed=500 → 125秒 (默认，自然阅读)
+        #   SCALE=0.35: speed=500 → 175秒 (慢速精读)
+        self.TIME_SCALE = 0.25
         self._last_tick_time:float = 0.0  # 上一帧时间戳(perf_counter)，用于精确计算帧间隔
         self.images:List[QPixmap]=[]       # 图片列表
         self.loaded_images:List[QPixmap]=[]# 加载中图片
@@ -3045,7 +3052,14 @@ class DisplayWindow(QMainWindow):
         else:
             # --- 线性恒速模式(无音频时降级使用) ---
             if self.speed_curve.is_enabled and len(self.speed_curve.points)>=2:
-                current_speed=self._get_curve_speed()
+                # 获取曲线速度值(范围约25~120)，作为倍率作用于base_speed
+                # 映射公式: 实际速度 = base_speed * (curve_speed / CURVE_BASE)
+                #   curve_speed=50 → 1.0倍(与base_speed相同，基准速度)
+                #   curve_speed=100→ 2.0倍(更慢，总时长翻倍)
+                #   curve_speed=25 → 0.5倍(更快，总时长减半)
+                CURVE_BASE = 50.0  # 基准值: 曲线speed=50时等于base_speed
+                curve_val=self._get_curve_speed()
+                current_speed=self.base_speed * (curve_val / CURVE_BASE)
             else:
                 current_speed=self.base_speed
 
@@ -3122,6 +3136,33 @@ class DisplayWindow(QMainWindow):
                 return p1.speed+t*(p2.speed-p1.speed)
         return self.base_speed
 
+    def _get_curve_average_speed(self)->float:
+        """
+        计算速度曲线的加权平均速度(用于估算总播放时长)
+
+        原理: 曲线将播放进度分为多段，每段有自己的speed值。
+              总时长 ≈ Σ(每段长度比例 × 该段有效速度) × TIME_SCALE
+              加权平均速度 = Σ(每段长度比例 × 该段有效速度)
+
+        返回值: 转换后的实际ms值(= base_speed * avg_curve_speed / 50)
+        """
+        if not self.speed_curve.points or len(self.speed_curve.points) < 2:
+            return self.base_speed
+
+        pts = sorted(self.speed_curve.points, key=lambda p: p.position)
+        CURVE_BASE = 50.0  # 与 _tick 中的倍率基准一致
+
+        total_weighted_speed = 0.0
+        for i in range(len(pts) - 1):
+            p1, p2 = pts[i], pts[i + 1]
+            segment_len = p2.position - p1.position  # 该段的进度百分比长度
+            avg_segment_speed = (p1.speed + p2.speed) / 2.0  # 该段平均曲线speed
+            # 转换为实际有效速度并按段长加权
+            total_weighted_speed += segment_len * (avg_segment_speed / CURVE_BASE)
+
+        # 加权平均后乘以base_speed得到实际有效ms值
+        return self.base_speed * (total_weighted_speed / 100.0)  # 总进度100%
+
     def _calculate_scroll_step(self,speed_ms:float)->None:
         """
         根据速度(ms)计算每帧滚动像素数 - 使用固定30fps定时器确保平滑
@@ -3140,10 +3181,10 @@ class DisplayWindow(QMainWindow):
         参数:
             speed_ms: 当前有效速度(毫秒)。值越大→播放越慢(总时长更长)
 
-        调整效果(TIME_SCALE=0.08, 谱面10000px):
-            speed_ms=350 → 28秒总时长, ~11.9px/帧
-            speed_ms=500 → 40秒总时长, ~8.3px/帧 (默认)
-            speed_ms=700 → 56秒总时长, ~5.95px/帧
+        调整效果(TIME_SCALE=0.25, 谱面10000px):
+            speed_ms=350 → 87.5秒总时长, ~3.8px/帧
+            speed_ms=500 → 125秒总时长, ~2.67px/帧 (默认)
+            speed_ms=700 → 175秒总时长, ~1.9px/帧
         """
         if speed_ms<=0:
             speed_ms=1
@@ -3176,8 +3217,13 @@ class DisplayWindow(QMainWindow):
             display_h=self.height()*2//3  # 估算显示区约占窗口高度的2/3
         self.total_scroll_distance=max(0,total-display_h)
         # 更新总时长显示(右侧时间标签)
-        # 线性模式: 总时长 = base_speed * TIME_SCALE (与 _calculate_scroll_step 公式一致)
-        secs = int(self.base_speed * self.TIME_SCALE)
+        # 线性模式: 总时长 = 有效速度 * TIME_SCALE
+        #   无曲线时: 有效速度 = base_speed
+        #   有曲线时: 有效速度 = 曲线各段速度的加权平均(积分近似)
+        effective_speed = self._get_curve_average_speed() if (
+            self.speed_curve.is_enabled and len(self.speed_curve.points) >= 2
+        ) else self.base_speed
+        secs = int(effective_speed * self.TIME_SCALE)
         self.time_end_label.setText(f"{secs//60:02d}:{secs%60:02d}")
 
     def _check_loop_condition(self)->bool:
@@ -3215,8 +3261,8 @@ class DisplayWindow(QMainWindow):
             total_dur_s = getattr(self, '_total_audio_duration_ms', 0) / 1000.0 or 1.0
         else:
             # 线性模式: 根据速度公式反推总时长
-            # 总时长(秒) = base_speed * TIME_SCALE (与 _calculate_scroll_step 一致)
-            total_dur_s = self.base_speed * self.TIME_SCALE
+            # 有曲线时使用加权平均有效速度，无曲线时用base_speed
+            total_dur_s = self._get_curve_average_speed() * self.TIME_SCALE
 
         self.play_time = ratio * total_dur_s
 
@@ -3281,7 +3327,10 @@ class DisplayWindow(QMainWindow):
         self._calculate_scroll_step(val)
         # 重新计算并更新总时长显示(右侧时间标签)
         if self.total_scroll_distance > 0:
-            secs = int(val * self.TIME_SCALE)
+            effective_speed = self._get_curve_average_speed() if (
+                self.speed_curve.is_enabled and len(self.speed_curve.points) >= 2
+            ) else self.base_speed
+            secs = int(effective_speed * self.TIME_SCALE)
             self.time_end_label.setText(f"{secs//60:02d}:{secs%60:02d}")
         # 按当前进度比例重新同步play_time(总时长变了，当前时间也要按比例调整)
         self._sync_play_time_from_position()
@@ -3956,10 +4005,17 @@ class DisplayWindow(QMainWindow):
         dlg.exec_()
 
     def _on_curve_updated(self,config:SpeedCurveConfig)->None:
-        """速度曲线更新回调"""
+        """速度曲线更新回调 - 刷新曲线配置+状态标签+总时长显示"""
         self.speed_curve=config
         status=f"已启用({len(config.points)}个控制点)" if config.is_enabled else "未启用"
         self.curve_status_label.setText(f"速度曲线: {status}")
+        # 曲线变化后重新计算并更新总时长(右侧时间标签)
+        if self.display_window.total_scroll_distance > 0:
+            effective_speed = self.display_window._get_curve_average_speed() if (
+                config.is_enabled and len(config.points) >= 2
+            ) else self.display_window.base_speed
+            secs = int(effective_speed * self.display_window.TIME_SCALE)
+            self.display_window.time_end_label.setText(f"{secs//60:02d}:{secs%60:02d}")
 
     # ========== 键盘事件 ==========
 
