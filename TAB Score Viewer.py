@@ -1502,6 +1502,7 @@ class DisplayWidget(QWidget):
         max_pos = max(0, self.parent_window.total_scroll_distance)
         self.parent_window.current_position = max(0, min(self.parent_window.current_position, max_pos))
         self.parent_window.update_progress_display()
+        self.parent_window._sync_play_time_from_position()  # 同步播放时间(滚轮改变位置后)
         self.update()
         event.accept()
 
@@ -1608,6 +1609,7 @@ class DisplayWidget(QWidget):
                     self.parent_window.current_position = new_position
                     self.parent_window._click_jump_target = new_position
                     self.parent_window.update_progress_display()
+                    self.parent_window._sync_play_time_from_position()  # 同步播放时间(点击跳转后)
                     
                     # === 步骤2: 先处理音频seek(在start_playback之前!) ===
                     # 重要: seek必须在play()之前调用，这样play()启动的线程才能使用正确的start_offset
@@ -2141,6 +2143,15 @@ class DisplayWindow(QMainWindow):
         self.file_path=file_path; self.file_type=file_type
         self.base_speed:int=speed           # 基础速度(ms)
         self.current_position:float=0.0     # 当前滚动位置(px)
+        # === 线性模式时间参数 ===
+        # 控制线性滚动模式下的总播放时长(秒) = base_speed * LINEAR_DURATION_SCALE
+        # 调大此值 → 同样速度下总时长更长(播放更慢，适合仔细读谱)
+        # 调小此值 → 同样速度下总时长更短(播放更快，适合快速浏览)
+        # 示例(base_speed范围350~700):
+        #   0.10 → 35s~70s   (快速浏览)
+        #   0.12 → 42s~84s   (默认，接近自然阅读速度)
+        #   0.15 → 52.5s~105s (慢速精读)
+        self.LINEAR_DURATION_SCALE = 0.12
         self.images:List[QPixmap]=[]       # 图片列表
         self.loaded_images:List[QPixmap]=[]# 加载中图片
         self.timer:QTimer=QTimer()         # 播放定时器
@@ -3109,7 +3120,7 @@ class DisplayWindow(QMainWindow):
           其中:
             - FRAME_INTERVAL = 33ms (固定，保证30fps平滑更新)
             - speed_ms: 用户设置的速度系数(越大越慢)
-            - DURATION_SCALE: 总时长缩放因子(默认1.5)
+            - DURATION_SCALE: 总时长缩放因子(默认0.12，见LINEAR_DURATION_SCALE)
         
         参数:
             speed_ms: 当前有效速度(毫秒)。值越大→播放越慢
@@ -3125,10 +3136,10 @@ class DisplayWindow(QMainWindow):
         # 固定帧率参数(30fps = 33ms/帧) - 保证视觉更新连贯不卡顿
         FRAME_INTERVAL_MS = 33  # 调大→帧率降低可能卡顿; 调小→更流畅但CPU略增
 
-        # 缩放因子: 控制速度档位的整体快慢感
+        # 缩放因子: 控制速度档位的整体快慢感(详见__init__中LINEAR_DURATION_SCALE说明)
         # 调大此值 → 同样speed_ms下播放更慢(耗时更长)
         # 调小此值 → 同样speed_ms下播放更快
-        DURATION_SCALE = 1.5  # 总时长(秒) = speed_ms * DURATION_SCALE / 1000
+        DURATION_SCALE = self.LINEAR_DURATION_SCALE  # 总时长(秒) ≈ speed_ms * SCALE
         
         if self.total_scroll_distance > 0:
             self.scroll_step = (
@@ -3157,8 +3168,9 @@ class DisplayWindow(QMainWindow):
         if display_h<100:  # 布局未完成时的兜底值
             display_h=self.height()*2//3  # 估算显示区约占窗口高度的2/3
         self.total_scroll_distance=max(0,total-display_h)
-        # 更新时间估算
-        secs=int(self.total_scroll_distance/self.scroll_step/60) if self.scroll_step>0 else 0
+        # 更新总时长显示(右侧时间标签)
+        # 线性模式: 总时长 = base_speed * LINEAR_DURATION_SCALE (与 _calculate_scroll_step 公式一致)
+        secs = int(self.base_speed * self.LINEAR_DURATION_SCALE)
         self.time_end_label.setText(f"{secs//60:02d}:{secs%60:02d}")
 
     def _check_loop_condition(self)->bool:
@@ -3171,6 +3183,37 @@ class DisplayWindow(QMainWindow):
             pos_pct=(self.current_position/self.total_scroll_distance)*100 if self.total_scroll_distance>0 else 0
             return pos_pct>=self.loop_config.end_position
         return False
+
+    def _sync_play_time_from_position(self)->None:
+        """
+        根据当前滚动位置同步播放时间(线性模式/外部位置变更时调用)
+
+        原理: 当用户通过滚轮、进度条拖动、点击谱面等方式改变位置时，
+              play_time 需要与 current_position 保持比例一致，否则时间显示会错乱。
+
+        线性模式: 总时长 = base_speed * DURATION_SCALE (秒)
+                 play_time = (position / total_distance) * 总时长
+        时间驱动模式(GTP音频): 总时长 = _total_audio_duration_ms / 1000
+                             play_time 由音频引擎驱动，此处不覆盖
+        """
+        if self.total_scroll_distance <= 0:
+            return
+        ratio = self.current_position / self.total_scroll_distance
+        ratio = max(0.0, min(ratio, 1.0))  # 限制在[0,1]
+
+        # 判断当前使用哪种模式的总时长
+        if (self.gtp_player and self.gtp_player.is_audio_ready
+                and self.gtp_player.audio_mode != 'off'):
+            # 时间驱动模式: 使用音频总时长
+            total_dur_s = getattr(self, '_total_audio_duration_ms', 0) / 1000.0 or 1.0
+        else:
+            # 线性模式: 根据速度公式反推总时长
+            # scroll_step = total_dist * 33 / (speed_ms * LINEAR_DURATION_SCALE * 1000)
+            # 总帧数 = total_dist / scroll_step = speed_ms * LINEAR_DURATION_SCALE * 1000 / 33
+            # 总时长(秒) = 总帧数 * 33 / 1000 = speed_ms * LINEAR_DURATION_SCALE
+            total_dur_s = self.base_speed * self.LINEAR_DURATION_SCALE
+
+        self.play_time = ratio * total_dur_s
 
     def update_progress_display(self)->None:
         """更新进度显示(非播放时调用，如拖动进度条/滚轮滚动)"""
@@ -3219,7 +3262,7 @@ class DisplayWindow(QMainWindow):
 
     def _on_speed_changed(self,val:int)->None:
         """
-        速度改变回调 - 更新base_speed参数
+        速度改变回调 - 更新base_speed参数 + 重算滚动步长 + 更新总时长显示
         
         原理(v1.6.0+): 定时器已改为固定33ms(30fps)，速度通过以下方式生效:
           - 时间驱动模式(有音频): _tick()中 time_scale = base_speed / curve_speed
@@ -3229,7 +3272,15 @@ class DisplayWindow(QMainWindow):
               导致帧率从30fps骤降到1-3fps，播放条严重卡顿。
         """
         self.base_speed=val
-        # base_speed变化会在下一次_tick()自动生效，无需重启定时器
+        # 重新计算每帧滚动步长(线性模式立即生效)
+        self._calculate_scroll_step(val)
+        # 重新计算并更新总时长显示(右侧时间标签)
+        if self.total_scroll_distance > 0:
+            secs = int(val * self.LINEAR_DURATION_SCALE)
+            self.time_end_label.setText(f"{secs//60:02d}:{secs%60:02d}")
+        # 按当前进度比例重新同步play_time(总时长变了，当前时间也要按比例调整)
+        self._sync_play_time_from_position()
+        # base_speed变化会在下一次_tick()自动生效(已通过scroll_step生效)
 
     def _on_progress_changed(self,pos:float)->None:
         """
@@ -3253,6 +3304,9 @@ class DisplayWindow(QMainWindow):
                         self.gtp_player.seek(target_ms)
                 except Exception as e:
                     print(f"[Audio] seek失败: {e}")
+
+            # 同步播放时间(线性模式/拖动进度条后时间需与位置一致)
+            self._sync_play_time_from_position()
 
     def _on_region_selected(self,start:float,end:float)->None:
         """A-B区域选择"""
