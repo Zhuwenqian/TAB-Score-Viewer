@@ -58,11 +58,8 @@ source venv/bin/activate
 # 4. 安装依赖（使用国内镜像源）
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-# 5. 安装 ApolloTab GTP引擎（从PyPI）
-pip install ApolloTab -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-# 6. 运行
-python guitar_tab_viewer.py
+# 5. 运行
+python "TAB Score Viewer.py"
 ```
 
 ### 方式二：直接运行 EXE（无需 Python 环境）
@@ -72,10 +69,9 @@ python guitar_tab_viewer.py
 ```bash
 # 从源码自行打包（需要先安装依赖，见方式一第1-4步）
 pip install pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
-pyinstaller guitar_tab_viewer.spec
+pyinstaller "TAB Score Viewer.spec"
 
-# 运行打包好的程序
-dist/guitar_tab_viewer/guitar_tab_viewer.exe
+# 双击运行 TAB Score Viewer.exe
 ```
 
 ### 使用方法
@@ -120,8 +116,8 @@ dist/guitar_tab_viewer/guitar_tab_viewer.exe
 
 ```
 TAB Score Viewer/
-├── guitar_tab_viewer.py      # 主程序（含I18n国际化类、图标加载）
-├── guitar_tab_viewer.spec    # PyInstaller 打包配置（非单文件模式）
+├── TAB Score Viewer.py      # 主程序（含I18n国际化类、图标加载）
+├── TAB Score Viewer.spec    # PyInstaller 打包配置（非单文件模式）
 ├── icon.png                  # 应用图标源文件 (PNG, 2048x2048)
 ├── icon.ico                  # 应用图标 (ICO多尺寸: 16/32/48/64/128/256)
 ├── README.md                 # 项目说明文档（本文件）
@@ -218,10 +214,8 @@ pages = render_gtp("my_song.gp5", track_index=0)
 pip install pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 3. 执行打包（使用预配置的 spec 文件）
-pyinstaller TAB Score Viewer.spec
-
-# 4. 运行打包结果
-dist\TAB Score Viewer\TAB Score Viewer.exe
+pyinstaller "TAB Score Viewer.spec"
+#双击运行
 ```
 
 ### spec 配置说明 (`TAB Score Viewer.spec`)
@@ -326,7 +320,7 @@ source venv/bin/activate   # Linux/Mac
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # Run
-python TAB Score Viewer.py
+python "TAB Score Viewer.py"
 ```
 
 ### Option 2: Run EXE Directly (No Python Required)
@@ -334,10 +328,8 @@ python TAB Score Viewer.py
 ```bash
 # Build from source (requires dependencies installed first, see Option 1 steps 1-4)
 pip install pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
-pyinstaller TAB Score Viewer.spec
+pyinstaller "TAB Score Viewer.spec"
 
-# Run packaged program
-dist/TAB Score Viewer/TAB Score Viewer.exe
 ```
 
 ## Shortcuts
@@ -386,8 +378,8 @@ Uses PyInstaller **onedir mode** (directory, not single-file):
 
 ```bash
 pip install pyinstaller
-pyinstaller TAB Score Viewer.spec
-dist/TAB Score Viewer/TAB Score Viewer.exe
+pyinstaller "TAB Score Viewer.spec"
+#Double-click the generated TAB Score Viewer.exe to run the program
 ```
 
 Key settings:

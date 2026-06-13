@@ -46,6 +46,7 @@
 
 import sys
 import os
+import time  # 高精度计时(用于线性模式下play_time与真实时间同步)
 import json
 import math
 import copy
@@ -2144,21 +2145,22 @@ class DisplayWindow(QMainWindow):
         self.base_speed:int=speed           # 基础速度(ms)
         self.current_position:float=0.0     # 当前滚动位置(px)
         # === 线性模式时间参数 ===
-        # 核心公式: 总播放时长(秒) = base_speed / SPEED_DIVISOR
+        # 核心公式: 总播放时长(秒) = base_speed * TIME_SCALE
         # scroll_step 和 play_time 都基于此总时长计算，保证三者严格一致:
         #   - 播放到末尾时: current_position == total_scroll_distance
         #   - 播放到末尾时: play_time == 总时长(≈现实经过时间)
         #   - 播放到末尾时: 左侧时间 ≈ 右侧总时长
         #
-        # SPEED_DIVISOR 调节整体快慢感:
-        #   调大(如12)→ 同样speed下总时长更短 → 播放更快
-        #   调小(如8) → 同样speed下总时长更长 → 播放更慢
+        # TIME_SCALE 调节整体快慢感(单位: 秒/ms):
+        #   调大(如0.15)→ 同样speed下总时长更长 → 播放更慢(适合精读)
+        #   调小(如0.06)→ 同样speed下总时长更短 → 播放更快(适合快速浏览)
         #
-        # 示例(base_speed范围350~700, DIVISOR=10):
-        #   speed=350 → 总时长35秒 (快速浏览)
-        #   speed=500 → 总时长50秒 (默认，自然阅读)
-        #   speed=700 → 总时长70秒 (慢速精读)
-        self.SPEED_DIVISOR = 10.0
+        # 示例(base_speed范围350~700):
+        #   SCALE=0.06: speed=500 → 30秒 (快速浏览)
+        #   SCALE=0.08: speed=500 → 40秒 (默认，自然阅读)
+        #   SCALE=0.12: speed=500 → 60秒 (慢速精读)
+        self.TIME_SCALE = 0.08
+        self._last_tick_time:float = 0.0  # 上一帧时间戳(perf_counter)，用于精确计算帧间隔
         self.images:List[QPixmap]=[]       # 图片列表
         self.loaded_images:List[QPixmap]=[]# 加载中图片
         self.timer:QTimer=QTimer()         # 播放定时器
@@ -2669,6 +2671,7 @@ class DisplayWindow(QMainWindow):
         """
         # 使用固定30fps定时器(33ms)，不再用base_speed作为间隔
         self.timer.start(33)
+        self._last_tick_time = time.perf_counter()  # 重置时间戳，从当前时刻开始计时
         # Phase 3: 同时启动音频引擎
         if self.gtp_player and self.gtp_player.is_audio_ready:
             self.gtp_player.play()
@@ -3048,9 +3051,13 @@ class DisplayWindow(QMainWindow):
 
             self._calculate_scroll_step(current_speed)
             self.current_position+=self.scroll_step
-            # 线性模式: 按实际帧间隔(33ms)累加播放时间，而非速度值
-            # 之前错误地用 current_speed/1000.0 导致时间飞速增长(500→每帧+0.5s=15s/真实秒)
-            self.play_time += 33.0 / 1000.0  # ≈33ms/帧
+            # 线性模式: 使用perf_counter计算实际帧间隔，保证play_time与现实时间严格同步
+            # 之前用硬编码33.0/1000.0假设每帧精确33ms，但渲染开销导致实际帧间隔>33ms，
+            # 导致play_time累加比真实时间慢(显示的时间比实际经过的少)
+            now = time.perf_counter()
+            if self._last_tick_time > 0:
+                self.play_time += (now - self._last_tick_time)
+            self._last_tick_time = now
 
             # 循环检查
             should_loop=self._check_loop_condition()
@@ -3119,10 +3126,10 @@ class DisplayWindow(QMainWindow):
         """
         根据速度(ms)计算每帧滚动像素数 - 使用固定30fps定时器确保平滑
 
-        核心设计: 总时长(秒) = speed_ms / SPEED_DIVISOR，scroll_step 反推保证正好播完。
+        核心设计: 总时长(秒) = speed_ms * TIME_SCALE，scroll_step 反推保证正好播完。
 
           scroll_step = total_distance / (总时长 * 30帧/秒)
-                     = total_distance / ((speed_ms / SPEED_DIVISOR) * 30)
+                     = total_distance / ((speed_ms * TIME_SCALE) * 30)
 
         验证:
           30fps下，总帧数 = 总时长 * 30
@@ -3133,17 +3140,17 @@ class DisplayWindow(QMainWindow):
         参数:
             speed_ms: 当前有效速度(毫秒)。值越大→播放越慢(总时长更长)
 
-        调整效果(SPEED_DIVISOR=10, 谱面10000px):
-            speed_ms=350 → 35秒总时长, ~9.5px/帧
-            speed_ms=500 → 50秒总时长, ~6.7px/帧 (默认)
-            speed_ms=700 → 70秒总时长, ~4.8px/帧
+        调整效果(TIME_SCALE=0.08, 谱面10000px):
+            speed_ms=350 → 28秒总时长, ~11.9px/帧
+            speed_ms=500 → 40秒总时长, ~8.3px/帧 (默认)
+            speed_ms=700 → 56秒总时长, ~5.95px/帧
         """
         if speed_ms<=0:
             speed_ms=1
 
         if self.total_scroll_distance > 0:
-            # 总时长(秒) = speed_ms / SPEED_DIVISOR
-            total_duration_s = speed_ms / self.SPEED_DIVISOR
+            # 总时长(秒) = speed_ms * TIME_SCALE
+            total_duration_s = speed_ms * self.TIME_SCALE
             # 每帧像素 = 总距离 / (总时长秒数 * 30fps)
             self.scroll_step = self.total_scroll_distance / (total_duration_s * 30.0)
         else:
@@ -3169,8 +3176,8 @@ class DisplayWindow(QMainWindow):
             display_h=self.height()*2//3  # 估算显示区约占窗口高度的2/3
         self.total_scroll_distance=max(0,total-display_h)
         # 更新总时长显示(右侧时间标签)
-        # 线性模式: 总时长 = base_speed / SPEED_DIVISOR (与 _calculate_scroll_step 公式一致)
-        secs = int(self.base_speed / self.SPEED_DIVISOR)
+        # 线性模式: 总时长 = base_speed * TIME_SCALE (与 _calculate_scroll_step 公式一致)
+        secs = int(self.base_speed * self.TIME_SCALE)
         self.time_end_label.setText(f"{secs//60:02d}:{secs%60:02d}")
 
     def _check_loop_condition(self)->bool:
@@ -3208,8 +3215,8 @@ class DisplayWindow(QMainWindow):
             total_dur_s = getattr(self, '_total_audio_duration_ms', 0) / 1000.0 or 1.0
         else:
             # 线性模式: 根据速度公式反推总时长
-            # 总时长(秒) = base_speed / SPEED_DIVISOR (与 _calculate_scroll_step 一致)
-            total_dur_s = self.base_speed / self.SPEED_DIVISOR
+            # 总时长(秒) = base_speed * TIME_SCALE (与 _calculate_scroll_step 一致)
+            total_dur_s = self.base_speed * self.TIME_SCALE
 
         self.play_time = ratio * total_dur_s
 
@@ -3274,7 +3281,7 @@ class DisplayWindow(QMainWindow):
         self._calculate_scroll_step(val)
         # 重新计算并更新总时长显示(右侧时间标签)
         if self.total_scroll_distance > 0:
-            secs = int(val / self.SPEED_DIVISOR)
+            secs = int(val * self.TIME_SCALE)
             self.time_end_label.setText(f"{secs//60:02d}:{secs%60:02d}")
         # 按当前进度比例重新同步play_time(总时长变了，当前时间也要按比例调整)
         self._sync_play_time_from_position()
