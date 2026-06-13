@@ -4010,12 +4010,12 @@ class DisplayWindow(QMainWindow):
         status=f"已启用({len(config.points)}个控制点)" if config.is_enabled else "未启用"
         self.curve_status_label.setText(f"速度曲线: {status}")
         # 曲线变化后重新计算并更新总时长(右侧时间标签)
-        if self.display_window.total_scroll_distance > 0:
-            effective_speed = self.display_window._get_curve_average_speed() if (
+        if self.total_scroll_distance > 0:
+            effective_speed = self._get_curve_average_speed() if (
                 config.is_enabled and len(config.points) >= 2
-            ) else self.display_window.base_speed
-            secs = int(effective_speed * self.display_window.TIME_SCALE)
-            self.display_window.time_end_label.setText(f"{secs//60:02d}:{secs%60:02d}")
+            ) else self.base_speed
+            secs = int(effective_speed * self.TIME_SCALE)
+            self.time_end_label.setText(f"{secs//60:02d}:{secs%60:02d}")
 
     # ========== 键盘事件 ==========
 
