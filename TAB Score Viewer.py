@@ -2009,9 +2009,17 @@ class DisplayWidget(QWidget):
                     self.parent_window._sync_play_time_from_position()  # 同步播放时间(点击跳转后)
 
                     # === 步骤2: 音频seek(跳转到对应时间点) ===
-                    # [v2.0.1修复] 视频同步问题:
-                    #   scroll_pos_to_time的第3个参数height是视口偏移量,
-                    #   传入0仍有半行残留偏移→改用负值补偿(约半行高度=20px)
+                    # [v2.0.1修复] height参数必须传0!
+                    #
+                    # 库函数内部实现(scroll_pos_to_time):
+                    #   raw_scroll_y = scroll_pos + display_height / 2   ← 自动+h/2!
+                    #
+                    # 而我们的seek_position已经是"居中坐标"(与_tick的time_based_pos同坐标系),
+                    # 即相当于 time_to_scroll_pos 返回值 = scroll_y - h/2。
+                    # 如果再传self.height(),库内部会+h/2→多加~375px→经非线性映射放大→超前一页!
+                    #
+                    # 正确做法: 传0,让库内部只加0,保持对称性。
+                    # 残留微小误差(如果有)用常量微调即可。
                     target_ms = 0
                     if (self.parent_window.gtp_player and
                         self.parent_window.gtp_player.is_audio_ready):
@@ -2019,7 +2027,7 @@ class DisplayWidget(QWidget):
                             target_ms = self.parent_window.gtp_player.scroll_pos_to_time(
                                 seek_position,
                                 self.parent_window.total_scroll_distance,
-                                100  # 负偏移补偿残留误差(约1行高度,可微调: -30~-50)
+                                0  # 居中坐标不再需要h/2转换(内部会+0=无偏移)
                             )
                             print(f"[ClickDebug] pos={new_position:.0f} → ms={target_ms:.0f}")
                             if target_ms > 0:
