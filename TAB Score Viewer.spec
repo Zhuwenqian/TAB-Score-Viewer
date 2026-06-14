@@ -36,6 +36,8 @@ block_cipher = None
 datas = [
     # 翻译文件目录 -> 打包后保留在 locales/
     (os.path.join(SPEC_DIR, 'locales'), 'locales'),
+    # SVG图标目录 -> 打包后保留在 icons/(位于_internal/)
+    (os.path.join(SPEC_DIR, 'icons'), 'icons'),
     # FluidSynth 音频合成DLL库(音频播放功能依赖)
     (os.path.join(SPEC_DIR, 'libfluidsynth-3.dll'), '.'),
     (os.path.join(SPEC_DIR, 'SDL3.dll'), '.'),

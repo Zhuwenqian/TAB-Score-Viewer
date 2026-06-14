@@ -1,48 +1,71 @@
 # -*- coding: utf-8 -*-
 """
 ============================================================
-文件名: TAB Score Viewer.py
-功能描述: 万能吉他谱查看器(TAB Score Viewer) - 支持多格式查看、播放、标注、导出
-         支持格式: PNG, JPG, JPEG, WEBP(图片), PDF(文档), GP3/GP4/GP5/GPX(GTP吉他谱)
+File: TAB Score Viewer.py / 文件名: TAB Score Viewer.py
+Description: Universal Guitar TAB Score Viewer / 功能描述: 万能吉他谱查看器
+             Multi-format viewing, playback, annotation, and export
+             支持格式: PNG, JPG, JPEG, WEBP(image), PDF(document), GP3-GP5/GPX(GTP tablature)
 
-         核心功能:
-           1. 多格式吉他谱查看与自动滚动播放(速度范围350-700ms)
-           2. 可拖动进度条 + 循环播放(不循环/全局循环/区域A-B循环)
-           3. 速度曲线编辑器 - 贝塞尔曲线可视化编辑，含预设模板(图片/PDF格式)
-           4. 谱面文本标注系统 - 双击添加/拖动移动/样式自定义
-           5. 标注导入导出 - 自动加载同名.anno.json标注文件，A4尺寸PNG/PDF导出
-           6. 全局撤销重做 - Ctrl+Z/Y统一撤销所有标注操作(画布+管理器共享栈)
-           7. 页码导航 - PDF/多图模式底部页码输入框直接跳转
-           8. 鼠标滚轮滚动 - 支持Ctrl加速/Shift精细控制
-           9. 深色/浅色主题UI + 自定义组件(按钮/滑块/进度条) + 实时主题切换
-          10. 键盘快捷键 - 空格播放暂停/方向键调速/Ctrl+Z撤销/Ctrl+Y重做/ESC关闭
-          11. GTP文件完整渲染 - 基于ApolloTab库解析并渲染为六线谱图像
-          12. 右键打开文件位置 - 文件列表右键菜单支持在资源管理器中定位文件
-          13. GTP音轨切换 - 下拉菜单选择不同音轨查看(含调弦信息显示)
-          14. 播放光标 - 竖线跟随播放进度移动，当前小节高亮显示
-          15. 播放性能优化 - 图片缩放缓存+UI节流更新，解决播放卡顿
-          16. 国际化支持(i18n) - 中文/英文双语切换，JSON翻译文件
+Core Features / 核心功能:
+  1. Multi-format score viewing with auto-scroll playback (350-700ms speed range)
+     多格式吉他谱查看与自动滚动播放(速度范围350-700ms)
+  2. Draggable progress bar + loop playback (no-loop/global-loop/A-B-region-loop)
+     可拖动进度条 + 循环播放(不循环/全局循环/区域A-B循环)
+  3. Speed curve editor - Bezier curve visualization with preset templates (image/PDF mode)
+     速度曲线编辑器 - 贝塞尔曲线可视化编辑，含预设模板(图片/PDF格式)
+  4. Score text annotation system - double-click to add/drag to move/custom styles
+     谱面文本标注系统 - 双击添加/拖动移动/样式自定义
+  5. Annotation import/export - auto-load .anno.json files, A4 PNG/PDF export
+     标注导入导出 - 自动加载同名.anno.json标注文件，A4尺寸PNG/PDF导出
+  6. Global undo/redo - Ctrl+Z/Y for all annotation operations (shared stack)
+     全局撤销重做 - Ctrl+Z/Y统一撤销所有标注操作(画布+管理器共享栈)
+  7. Page navigation - page input box for PDF/multi-image mode
+     页码导航 - PDF/多图模式底部页码输入框直接跳转
+  8. Mouse wheel scrolling - Ctrl-acceleration / Shift-fine-control support
+     鼠标滚轮滚动 - 支持Ctrl加速/Shift精细控制
+  9. Dark/Light theme UI + custom components (buttons/sliders/progress bar) + real-time switching
+     深色/浅色主题UI + 自定义组件(按钮/滑块/进度条) + 实时主题切换
+ 10. Keyboard shortcuts - Space play/pause, arrow keys speed, Ctrl+Z/Y undo/redo, ESC close
+     键盘快捷键 - 空格播放暂停/方向键调速/Ctrl+Z撤销/Ctrl+Y重做/ESC关闭
+ 11. GTP file full rendering - parse and render as tablature via ApolloTab library
+     GTP文件完整渲染 - 基于ApolloTab库解析并渲染为六线谱图像
+ 12. Right-click open file location - context menu to locate file in explorer
+     右键打开文件位置 - 文件列表右键菜单支持在资源管理器中定位文件
+ 13. GTP track switch - dropdown to select different tracks (with tuning info display)
+     GTP音轨切换 - 下拉菜单选择不同音轨查看(含调弦信息显示)
+ 14. Playhead cursor - vertical line follows playback, current measure highlighted
+     播放光标 - 竖线跟随播放进度移动，当前小节高亮显示
+ 15. Playback performance optimization - image scale cache + UI throttle updates
+     播放性能优化 - 图片缩放缓存+UI节流更新，解决播放卡顿
+ 16. Internationalization (i18n) - Chinese/English bilingual, JSON translation files
+     国际化支持(i18n) - 中文/英文双语切换，JSON翻译文件
 
-创建日期: 2026-06-06
-最后修改: 2026-06-13 (v2.0.1 - UI优化: 移除缩放/移除Emoji/SoundFont打包支持 + Bug修复)
+Created: 2026-06-06 / 创建日期: 2026-06-06
+Last Modified: 2026-06-14 (v2.0.1 - SVG icons, fix translations, SoundFont _internal path)
+最后修改: 2026-06-14 (v2.0.1 - SVG图标,修复翻译键,SoundFont _internal路径)
 
-依赖库:
-  - PyQt5 >= 5.15     # GUI框架(窗口/控件/信号槽/绘图/PDF导出)
-  - PyMuPDF >= 1.23   # PDF解析与页面渲染为图片 (开源项目: Artifex Software)
-  - Pillow >= 10.0    # 图片处理(PNG/JPG/WEBP解码) (开源项目: Python Imaging Library)
-  - guitarpro >= 0.11 # Guitar Pro文件解析 (开源项目: pyguitarpro) - GTP渲染功能依赖
+Dependencies / 依赖库:
+  - PyQt5 >= 5.15     # GUI framework (windows/widgets/signals/painting/PDF export)
+                       # GUI框架(窗口/控件/信号槽/绘图/PDF导出)
+  - PyMuPDF >= 1.23   # PDF parsing and page rendering (Open Source: Artifex Software)
+                       # PDF解析与页面渲染为图片 (开源项目: Artifex Software)
+  - Pillow >= 10.0    # Image processing (PNG/JPG/WEBP decoding) (Open Source: PIL)
+                       # 图片处理(PNG/JPG/WEBP解码) (开源项目: Python Imaging Library)
+  - guitarpro >= 0.11 # Guitar Pro file parsing (Open Source: pyguitarpro) - GTP dependency
+                       # Guitar Pro文件解析 (开源项目: pyguitarpro) - GTP渲染功能依赖
 
-技术栈: Python 3.8+ / PyQt5 / PyMuPDF / Pillow / guitarpro(gtp_engine)
-兼容性: Windows / Linux / Docker (所有路径使用相对路径)
+Tech Stack / 技术栈: Python 3.8+ / PyQt5 / PyMuPDF / Pillow / guitarpro(gtp_engine)
+Compatibility / 兼容性: Windows / Linux / Docker (all paths use relative paths)
 
-项目结构:
-  TAB Score Viewer.py     - 主程序(本文件，含I18n国际化类)
-  TAB Score Viewer.spec   - PyInstaller打包配置
-  locales/                - 翻译文件目录(zh_CN.json/en_US.json)
-  soundfont/              - SoundFont音色库目录(GTP音频播放必需,需下载FluidR3_GM.sf2)
-  config/settings.json    - 用户配置(含语言/主题设置,运行时自动生成)
-  data/annotations/       - 标注数据存储(JSON格式)
-  readme/                 - 项目文档目录
+Project Structure / 项目结构:
+  TAB Score Viewer.py     - Main program (this file, includes I18n class) / 主程序(本文件，含I18n国际化类)
+  TAB Score Viewer.spec   - PyInstaller packaging config / PyInstaller打包配置
+  icons/                  - SVG icon files (Lucide-style, for toolbar buttons) / SVG图标目录(Lucide风格工具栏图标)
+  locales/                - Translation file directory (zh_CN.json/en_US.json) / 翻译文件目录
+  soundfont/              - SoundFont directory (GTP audio required, download FluidR3_GM.sf2) / SoundFont音色库目录
+  config/settings.json    - User settings (language/theme, auto-generated at runtime) / 用户配置
+  data/annotations/       - Annotation data storage (JSON format) / 标注数据存储
+  readme/                 - Project documentation / 项目文档目录
 ============================================================
 """
 
@@ -114,6 +137,36 @@ def get_app_icon() -> QIcon:
     if os.path.exists(ico_path):
         return QIcon(ico_path)
     return QIcon()  # 文件不存在时返回空图标
+
+
+# ============================================================
+# SVG 图标加载器 (SVG Icon Loader)
+# ============================================================
+
+def load_icon(icon_name: str, size: tuple = None) -> QIcon:
+    """
+    加载 SVG 图标为 QIcon 对象 / Load SVG icon as QIcon object
+    原理: 从 icons/ 目录读取 SVG 文件，使用 Qt 渲染为像素图标
+         兼容开发模式和 PyInstaller 打包模式(onedir: _internal/)
+    参数:
+      icon_name: 图标文件名(不含扩展名), 如 "annotate", "export", "play"
+      size:     可选图标尺寸 (宽, 高) 元组, 默认 None(使用SVG原始尺寸)
+    返回:
+      QIcon 对象, 文件不存在时返回空 QIcon
+    """
+    # 确定应用根目录(兼容开发和打包模式)
+    if getattr(sys, 'frozen', False):
+        # PyInstaller onedir 模式: 数据文件在 _internal/ 子目录
+        base = os.path.join(os.path.dirname(sys.executable), '_internal')
+    else:
+        base = _APP_BASE_DIR
+    svg_path = os.path.join(base, 'icons', f'{icon_name}.svg')
+    if os.path.exists(svg_path):
+        icon = QIcon(svg_path)
+        return icon
+    return QIcon()  # 文件不存在时返回空图标
+
+
 # 标注文件扩展名: 与源文件同目录，命名为 {源文件名}.anno.json
 # 例如: 晚安北京.gp4 → 晚安北京.gp4.anno.json
 ANNOTATION_EXT = ".anno.json"
@@ -900,14 +953,25 @@ class LoadContentWorker(QRunnable):
 
 class ModernButton(QPushButton):
     """
-    现代化按钮组件 - 支持动态主题切换
-    功能: 带悬停效果、阴影、圆角的按钮基类
+    现代化按钮组件 - 支持动态主题切换 + SVG 图标
+    Modern Button Component with dynamic theme switching + SVG icon support
+    功能: 带悬停效果、阴影、圆角、可选图标的按钮基类
     主题: 通过 ThemeManager.get() 读取当前主题色，支持运行时切换
+    图标: 可选 SVG 图标(从 icons/ 目录加载), 显示在文字左侧
     """
 
-    def __init__(self, text: str, color_key: str = 'primary', parent=None):
+    def __init__(self, text: str, color_key: str = 'primary', icon_name: str = None, parent=None):
         super().__init__(text, parent)
         self.color_key = color_key
+        # 加载可选的 SVG 图标 / Load optional SVG icon
+        if icon_name:
+            icon = load_icon(icon_name)
+            if not icon.isNull():
+                self.setIcon(icon)
+                # 设置图标与文字间距 / Set spacing between icon and text
+                self.setIconSize(QSize(16, 16))
+                self.setStyleSheet(self._build_style_with_icon(color_key))
+                return
         self._setup_style()
 
     def _setup_style(self) -> None:
@@ -941,9 +1005,60 @@ class ModernButton(QPushButton):
         shadow.setOffset(0, 2)
         self.setGraphicsEffect(shadow)
 
+    def _build_style_with_icon(self, color_key: str) -> str:
+        """
+        构建带图标的按钮样式表 / Build stylesheet for button with icon
+        与 _setup_style 相似，但增加了图标内边距调整
+        参数: color_key - 主题色键名
+        返回: CSS 样式字符串
+        """
+        color = ThemeManager.get(color_key, THEME_DARK['primary'])
+        hover_color = ThemeManager.get(f'{color_key}_hover', color)
+        bg_primary = ThemeManager.get('bg_primary', '#121212')
+
+        self.setMinimumHeight(36)
+        self.setCursor(QCursor(Qt.PointingHandCursor))
+        # 浅色模式下阴影颜色调整为半透明灰而非纯黑
+        shadow_color = QColor(0, 0, 0, 25) if ThemeManager.is_light() else QColor(0, 0, 0, 40)
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(8)
+        shadow.setColor(shadow_color)
+        shadow.setOffset(0, 2)
+        self.setGraphicsEffect(shadow)
+
+        return f"""
+            ModernButton {{
+                background-color: {color};
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 8px 14px 8px 10px;
+                font-family: 'Microsoft YaHei';
+                font-size: 12px;
+                font-weight: 500;
+            }}
+            ModernButton:hover {{ background-color: {hover_color}; }}
+            ModernButton:pressed {{ background-color: {color}; }}
+            ModernButton:disabled {{ background-color: #4a5568; color: #a0aec0; }}
+        """
+
+    def set_color(self, color_key: str) -> None:
+        """
+        动态切换按钮主题色 / Dynamically change button theme color
+        用途: 播放/暂停状态切换时改变按钮颜色（如 success → warning）
+        原理: 更新 color_key 属性后重新应用完整样式表（保留圆角/字体/阴影/图标）
+        参数:
+          color_key: 新的主题色键名 (如 'success', 'warning', 'primary')
+        """
+        self.color_key = color_key
+        self.refresh_theme()
+
     def refresh_theme(self) -> None:
-        """主题切换时调用 - 重新应用样式"""
-        self._setup_style()
+        """主题切换时调用 - 重新应用样式 / Re-apply style on theme change"""
+        if not self.icon().isNull():
+            self.setStyleSheet(self._build_style_with_icon(self.color_key))
+        else:
+            self._setup_style()
 
 
 class ModernSlider(QSlider):
@@ -2792,13 +2907,18 @@ class DisplayWindow(QMainWindow):
         self.gtp_track_combo.currentIndexChanged.connect(self._on_gtp_track_changed)
         tb.addWidget(self.gtp_track_combo)
 
-        # 音频播放模式按钮（仅GTP文件显示，默认隐藏）
+        # 音频播放模式按钮（仅GTP文件显示，默认隐藏）(SVG图标: 扬声器)
         # 3种模式: 全轨并轨(默认) / 仅当前轨 / 关闭音频
         self.audio_btn = QToolButton()
         self.audio_btn.setText(I18n.t("toolbar.audio_all"))
         self.audio_btn.setToolTip(I18n.t("toolbar.audio_tooltip"))
         self.audio_btn.setPopupMode(QToolButton.InstantPopup)  # 点击即弹出菜单
         self.audio_btn.setVisible(False)  # 非GTP文件时隐藏
+        # 设置音频按钮图标 / Set audio button icon
+        vol_icon = load_icon('volume')
+        if not vol_icon.isNull():
+            self.audio_btn.setIcon(vol_icon)
+            self.audio_btn.setIconSize(QSize(18, 18))
         
         # 创建下拉菜单
         audio_menu = QMenu(self)
@@ -2818,19 +2938,19 @@ class DisplayWindow(QMainWindow):
 
         tb.addStretch()
 
-        # 标注按钮
-        self.annotation_btn=ModernButton(I18n.t("toolbar.annotation_btn"),'accent')
+        # 标注按钮 (SVG图标: 铅笔)
+        self.annotation_btn=ModernButton(I18n.t("toolbar.annotation_btn"),'accent','annotate')
         self.annotation_btn.clicked.connect(self._open_annotation_manager)
         tb.addWidget(self.annotation_btn)
 
-        # 导出按钮(A4 PNG/PDF，含标注)
-        self.export_btn=ModernButton(I18n.t("toolbar.export_btn"),'primary')
+        # 导出按钮(A4 PNG/PDF，含标注) (SVG图标: 下载箭头)
+        self.export_btn=ModernButton(I18n.t("toolbar.export_btn"),'primary','export')
         self.export_btn.setToolTip(I18n.t("toolbar.export_tooltip"))
         self.export_btn.clicked.connect(self._export_to_a4)
         tb.addWidget(self.export_btn)
 
-        # 速度曲线按钮
-        self.curve_btn=ModernButton(I18n.t("toolbar.curve_btn"),'primary')
+        # 速度曲线按钮 (SVG图标: 趋势线图表)
+        self.curve_btn=ModernButton(I18n.t("toolbar.curve_btn"),'primary','chart')
         self.curve_btn.clicked.connect(self._open_speed_curve_editor)
         tb.addWidget(self.curve_btn)
 
@@ -2844,8 +2964,8 @@ class DisplayWindow(QMainWindow):
         # === 播放控制 ===
         pg=QGroupBox(I18n.t("control_panel.playback_control"));pl=QVBoxLayout(pg)
         btn_row=QHBoxLayout()
-        self.play_btn=ModernButton(I18n.t("control_panel.play_btn"),'success');self.play_btn.clicked.connect(self.toggle_playback)
-        self.stop_btn=ModernButton(I18n.t("control_panel.stop_btn"),'danger');self.stop_btn.clicked.connect(lambda: self.stop_playback(reset_position=True));self.stop_btn.setEnabled(False)
+        self.play_btn=ModernButton(I18n.t("control_panel.play_btn"),'success','play');self.play_btn.clicked.connect(self.toggle_playback)
+        self.stop_btn=ModernButton(I18n.t("control_panel.stop_btn"),'danger','stop');self.stop_btn.clicked.connect(lambda: self.stop_playback(reset_position=True));self.stop_btn.setEnabled(False)
         btn_row.addWidget(self.play_btn);btn_row.addWidget(self.stop_btn);pl.addLayout(btn_row)
 
         # 循环模式
@@ -2855,11 +2975,11 @@ class DisplayWindow(QMainWindow):
         self.loop_combo.currentIndexChanged.connect(self._on_loop_mode_changed)
         loop_row.addWidget(self.loop_combo);pl.addLayout(loop_row)
 
-        # A-B点按钮
+        # A-B点按钮 (SVG图标: 旗标/删除)
         ab_row=QHBoxLayout()
-        self.set_a_btn=ModernButton(I18n.t("control_panel.set_a_btn"),'warning');self.set_a_btn.clicked.connect(lambda:self._set_ab_point('a'))
-        self.set_b_btn=ModernButton(I18n.t("control_panel.set_b_btn"),'warning');self.set_b_btn.clicked.connect(lambda:self._set_ab_point('b'))
-        self.clear_ab_btn=ModernButton(I18n.t("control_panel.clear_ab_btn"),'text_muted');self.clear_ab_btn.clicked.connect(self._clear_ab_points)
+        self.set_a_btn=ModernButton(I18n.t("control_panel.set_a_btn"),'warning','flag-a');self.set_a_btn.clicked.connect(lambda:self._set_ab_point('a'))
+        self.set_b_btn=ModernButton(I18n.t("control_panel.set_b_btn"),'warning','flag-b');self.set_b_btn.clicked.connect(lambda:self._set_ab_point('b'))
+        self.clear_ab_btn=ModernButton(I18n.t("control_panel.clear_ab_btn"),'text_muted','trash');self.clear_ab_btn.clicked.connect(self._clear_ab_points)
         ab_row.addWidget(self.set_a_btn);ab_row.addWidget(self.set_b_btn);ab_row.addWidget(self.clear_ab_btn)
         pl.addLayout(ab_row)
         layout.addWidget(pg)
@@ -3171,7 +3291,7 @@ class DisplayWindow(QMainWindow):
                 self.gtp_player.seek(self._paused_time_ms)
             self.gtp_player.play()
         self.play_btn.setText(I18n.t("control_panel.pause_btn"))
-        self.play_btn.setStyleSheet(f"background-color:{ThemeManager.get('warning', '#F59E0B')};")
+        self.play_btn.set_color('warning')  # 暂停状态: 橙色警告色
         self.stop_btn.setEnabled(True)
 
     def closeEvent(self, event):
@@ -3218,7 +3338,7 @@ class DisplayWindow(QMainWindow):
                 self._paused_time_ms = self.gtp_player.current_time_ms
                 self.gtp_player.stop()
         self.play_btn.setText(I18n.t("control_panel.play_btn"))
-        self.play_btn.setStyleSheet(f"background-color:{ThemeManager.get('success', '#10B981')};")
+        self.play_btn.set_color('success')  # 播放状态: 绿色成功色
         self.stop_btn.setEnabled(False)
 
     def _init_audio_engine(self)->None:
@@ -3240,14 +3360,19 @@ class DisplayWindow(QMainWindow):
         
         # === 确保SoundFont音色库可被找到(开发模式+打包模式兼容) ===
         # 原理: ApolloTab的SynthEngine使用相对路径搜索sf2文件,
-        #       打包后exe所在目录与CWD可能不同, 需要显式添加搜索路径
+        #       PyInstaller onedir模式: 数据文件在 _internal/ 子目录
+        #       开发模式: 脚本目录下直接访问
         try:
             from ApolloTab.audio.synth_engine import SynthEngine
-            # 获取应用根目录(开发模式: 脚本目录 / 打包模式: exe所在目录)
             import sys
-            app_base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else _APP_BASE_DIR
+            if getattr(sys, 'frozen', False):
+                # PyInstaller onedir 打包模式: 数据文件在 exe所在目录/_internal/
+                app_base = os.path.join(os.path.dirname(sys.executable), '_internal')
+            else:
+                # 开发模式: 脚本所在目录
+                app_base = _APP_BASE_DIR
             sf_dir = os.path.join(app_base, 'soundfont')
-            # 将应用根目录下的soundfont目录插入搜索列表最前面(最高优先级)
+            # 将soundfont目录插入搜索列表最前面(最高优先级)
             if sf_dir not in SynthEngine.SOUNDFONT_SEARCH_PATHS:
                 SynthEngine.SOUNDFONT_SEARCH_PATHS.insert(0, sf_dir)
                 print(f"[Audio] SoundFont搜索路径已添加: {sf_dir}")
