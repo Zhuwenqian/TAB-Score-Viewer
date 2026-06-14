@@ -97,6 +97,7 @@ from PyQt5.QtGui import (
     QPixmap, QPainter, QPen, QColor, QFont, QFontMetrics, QIcon,
     QImage, QCursor, QPainterPath, QLinearGradient, QRadialGradient,
     QMouseEvent, QKeyEvent, QWheelEvent, QResizeEvent, QShowEvent,
+    QContextMenuEvent,
     QKeySequence, QPalette, QBrush, QTransform, QPolygonF
 )
 from PyQt5.QtCore import (
@@ -2586,11 +2587,10 @@ class DisplayWidget(QWidget):
 
     def mouseDoubleClickEvent(self,event:QMouseEvent)->None:
         """
-        双击谱面 - 优先检测是否点击了已有标注(编辑)，否则新建
+        双击谱面 - 检测是否点击了已有标注(编辑模式)
         
-        使用两种不同对话框:
-          - 点击已有标注 → AnnotationEditDialog(带删除按钮)
-          - 点击空白处 → AnnotationCreateDialog(无删除，只有确定/取消)
+        功能: 双击已有标注可打开编辑对话框进行修改或删除
+        创建标注请使用: Ctrl+K快捷键 或 右键菜单"添加标注"
         
         命中区域: 基于_draw_one_ann中的bg_rect描边矩形(含padding)
         """
@@ -2598,7 +2598,7 @@ class DisplayWidget(QWidget):
         cx,cy=event.x(),event.y()
         ww=self.width()
 
-        # === 先检测是否点击了已有标注(命中区域=bg_rect描边范围) ===
+        # === 检测是否点击了已有标注(命中区域=bg_rect描边范围) ===
         if self.parent_window.annotations and ww>20:
             total_h=self._get_total_h()
             base_y=-self.parent_window.current_position
@@ -2640,21 +2640,9 @@ class DisplayWidget(QWidget):
                         # 取消编辑 → 撤销刚才保存的快照
                         if self.parent_window._undo_stack:
                             self.parent_window._undo_stack.pop()
-                    return  # ← 关键: 必须return，防止继续执行新建标注
+                    return  # ← 关键: 必须return
 
-        # === 未点击到任何标注 → 新建标注(使用专用创建对话框) ===
-        rel_x=max(0,min(1,(cx-10)/(ww-20))) if ww>20 else 0
-        if self.parent_window.images:
-            total_h=self._get_total_h()
-            base_y=-self.parent_window.current_position
-            rel_y=max(0,min(1,(cy-base_y)/total_h)) if total_h>0 else 0.5
-        else:
-            rel_y=0.5
-
-        # 使用AnnotationCreateDialog(专用新建对话框，无删除功能)
-        dlg=AnnotationCreateDialog(self, x=rel_x, y=rel_y)
-        if dlg.exec_()==QDialog.Accepted:
-            self.parent_window.add_annotation(dlg.get_annotation())  # 内部已调用 _anno_save_snapshot
+        # 双击空白处不执行任何操作(创建标注请用Ctrl+K或右键菜单)
 
     def _create_annotation_at(self, x: int, y: int)->None:
         """

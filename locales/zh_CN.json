@@ -46,7 +46,7 @@
     "status_info": "状态信息",
     "position_label": "位置: {pct}%",
     "time_label": "时间: {time}",
-    "shortcut_help": "空格: 播放/暂停\n↑↓: 调整位置\n←→: 微调速度\nCtrl+K: 鼠标位置添加标注\nESC: 关闭\n双击/右键谱面: 添加标注",
+    "shortcut_help": "空格: 播放/暂停\n↑↓: 调整位置\n←→: 微调速度\nCtrl+K: 鼠标位置添加标注\n右键谱面: 添加标注\nESC: 关闭",
     "shortcut_group": "快捷键"
   },
   "bottom_bar": {
@@ -110,6 +110,22 @@
       "y": "Y坐标"
     }
   },
+  "annotation_create": {
+    "default_text": "双击编辑标注内容...",
+    "window_title": "创建标注",
+    "position_group": "位置信息",
+    "coord_display": "坐标: X={x}, Y={y}",
+    "content_group": "标注内容",
+    "placeholder": "输入演奏技巧说明...",
+    "font_group": "字体设置",
+    "size_label": "字号:",
+    "bold_check": "粗体",
+    "color_group": "颜色设置",
+    "color_btn": "选择颜色",
+    "create_btn": "确定",
+    "cancel_btn": "取消",
+    "color_dialog_title": "选择标注颜色"
+  },
   "annotation_edit": {
     "default_text": "双击编辑标注内容...",
     "window_title": "编辑标注",
@@ -124,7 +140,8 @@
     "color_btn": "选择颜色",
     "save_btn": "保存",
     "delete_btn": "删除此标注",
-    "cancel_btn": "取消"
+    "cancel_btn": "取消",
+    "color_dialog_title": "选择标注颜色"
   },
   "context_menu": {
     "open_location": "打开文件所在位置",

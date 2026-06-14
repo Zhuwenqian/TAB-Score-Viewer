@@ -46,7 +46,7 @@
     "status_info": "Status",
     "position_label": "Position: {pct}%",
     "time_label": "Time: {time}",
-    "shortcut_help": "Space: Play/Pause\nUp/Down: Adjust Position\nLeft/Right: Fine-tune Speed\nCtrl+K: Add annotation at cursor\nESC: Close\nDouble-click/Right-click score: Add annotation",
+    "shortcut_help": "Space: Play/Pause\nUp/Down: Adjust Position\nLeft/Right: Fine-tune Speed\nCtrl+K: Add annotation at cursor\nRight-click score: Add annotation\nESC: Close",
     "shortcut_group": "Shortcuts"
   },
   "bottom_bar": {
@@ -110,6 +110,22 @@
       "y": "Y Pos"
     }
   },
+  "annotation_create": {
+    "default_text": "Double-click to edit annotation...",
+    "window_title": "Create Annotation",
+    "position_group": "Position Info",
+    "coord_display": "Coords: X={x}, Y={y}",
+    "content_group": "Annotation Content",
+    "placeholder": "Enter playing technique notes...",
+    "font_group": "Font Settings",
+    "size_label": "Size:",
+    "bold_check": "Bold",
+    "color_group": "Color Settings",
+    "color_btn": "Choose Color",
+    "create_btn": "Create",
+    "cancel_btn": "Cancel",
+    "color_dialog_title": "Choose Annotation Color"
+  },
   "annotation_edit": {
     "default_text": "Double-click to edit annotation...",
     "window_title": "Edit Annotation",
@@ -124,7 +140,8 @@
     "color_btn": "Choose Color",
     "save_btn": "Save",
     "delete_btn": "Delete This Annotation",
-    "cancel_btn": "Cancel"
+    "cancel_btn": "Cancel",
+    "color_dialog_title": "Choose Annotation Color"
   },
   "context_menu": {
     "open_location": "Open File Location",
