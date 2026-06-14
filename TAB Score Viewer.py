@@ -24,7 +24,7 @@
           16. 国际化支持(i18n) - 中文/英文双语切换，JSON翻译文件
 
 创建日期: 2026-06-06
-最后修改: 2026-06-13 (v2.0.1 - Bug修复: GTP点击跳转→零偏移offset=0精确定位+播放启动解耦)
+最后修改: 2026-06-13 (v2.0.1 - UI优化: 移除缩放/移除Emoji/SoundFont打包支持 + Bug修复)
 
 依赖库:
   - PyQt5 >= 5.15     # GUI框架(窗口/控件/信号槽/绘图/PDF导出)
@@ -36,12 +36,13 @@
 兼容性: Windows / Linux / Docker (所有路径使用相对路径)
 
 项目结构:
-  guitar_tab_viewer.py   - 主程序(本文件，含I18n国际化类)
-  locales/               - 翻译文件目录(zh_CN.json/en_US.json)
-  gtp_engine/            - GTP渲染引擎库(解析+渲染六线谱)
-  config/settings.json   - 用户配置(含语言设置,运行时自动生成)
-  data/annotations/      - 标注数据存储(JSON格式)
-  readme/                - 项目文档目录
+  TAB Score Viewer.py     - 主程序(本文件，含I18n国际化类)
+  TAB Score Viewer.spec   - PyInstaller打包配置
+  locales/                - 翻译文件目录(zh_CN.json/en_US.json)
+  soundfont/              - SoundFont音色库目录(GTP音频播放必需,需下载FluidR3_GM.sf2)
+  config/settings.json    - 用户配置(含语言/主题设置,运行时自动生成)
+  data/annotations/       - 标注数据存储(JSON格式)
+  readme/                 - 项目文档目录
 ============================================================
 """
 
@@ -2817,14 +2818,6 @@ class DisplayWindow(QMainWindow):
 
         tb.addStretch()
 
-        # 缩放滑块
-        tb.addWidget(QLabel(I18n.t("toolbar.zoom")))
-        self.zoom_slider=ModernSlider(Qt.Horizontal,'primary')
-        self.zoom_slider.setRange(50,200);self.zoom_slider.setValue(100)
-        self.zoom_slider.setMaximumWidth(120)
-        self.zoom_slider.valueChanged.connect(self._on_zoom_changed)
-        tb.addWidget(self.zoom_slider)
-
         # 标注按钮
         self.annotation_btn=ModernButton(I18n.t("toolbar.annotation_btn"),'accent')
         self.annotation_btn.clicked.connect(self._open_annotation_manager)
@@ -3245,6 +3238,22 @@ class DisplayWindow(QMainWindow):
             self.audio_btn.setEnabled(False)
             return
         
+        # === 确保SoundFont音色库可被找到(开发模式+打包模式兼容) ===
+        # 原理: ApolloTab的SynthEngine使用相对路径搜索sf2文件,
+        #       打包后exe所在目录与CWD可能不同, 需要显式添加搜索路径
+        try:
+            from ApolloTab.audio.synth_engine import SynthEngine
+            # 获取应用根目录(开发模式: 脚本目录 / 打包模式: exe所在目录)
+            import sys
+            app_base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else _APP_BASE_DIR
+            sf_dir = os.path.join(app_base, 'soundfont')
+            # 将应用根目录下的soundfont目录插入搜索列表最前面(最高优先级)
+            if sf_dir not in SynthEngine.SOUNDFONT_SEARCH_PATHS:
+                SynthEngine.SOUNDFONT_SEARCH_PATHS.insert(0, sf_dir)
+                print(f"[Audio] SoundFont搜索路径已添加: {sf_dir}")
+        except Exception as e:
+            print(f"[Audio] 警告: 无法设置SoundFont搜索路径: {e}")
+        
         # 设置音符回调(视觉高亮同步)
         success = self.gtp_player.init_audio(note_callback=self._on_audio_note_played)
         
@@ -3267,7 +3276,7 @@ class DisplayWindow(QMainWindow):
               - "current": 仅当前轨 - 只播放当前选中音轨的音频
               - "off":     关闭音频 - 仅滚动播放，不输出声音
         
-        原理: 用户通过 🔊 按钮下拉菜单选择模式，委托给 GTPPlayer 处理。
+        原理: 用户通过音频按钮下拉菜单选择模式，委托给 GTPPlayer 处理。
               切换时如果正在播放会自动重建事件序列并继续播放。
         """
         from ApolloTab import GTPPlayer  # 延迟导入(仅GTP文件需要)
@@ -3815,10 +3824,6 @@ class DisplayWindow(QMainWindow):
         self.page_input.blockSignals(False)
 
     # ========== 事件处理 ==========
-
-    def _on_zoom_changed(self,val:int)->None:
-        """缩放改变"""
-        pass  # 可扩展实现缩放功能
 
     def _on_speed_changed(self,val:int)->None:
         """

@@ -58,7 +58,23 @@ source venv/bin/activate
 # 4. 安装依赖（使用国内镜像源）
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-# 5. 运行
+# 5. 下载 SoundFont 音色库（GTP 音频播放必需，约 140MB）
+# 程序会在以下位置自动搜索音色库文件:
+#   - 项目目录下的 soundfont/ 文件夹（推荐）
+#   - 用户主目录 ~/.fluidsynth/
+#
+# 下载地址（任选其一）:
+#   官方源: https://ftp.osuosl.org/pub/musespan/SoundFonts/FluidR3_GM.sf2
+#   镜像源: https://github.com/FluidSynth/fluidsynth/wiki/SoundFont
+#
+# 下载后放到项目的 soundfont/ 目录下，目录结构如下:
+#   TAB Score Viewer/
+#   ├── soundfont/
+#   │   └── FluidR3_GM.sf2          ← 音色库文件放这里
+#   ├── TAB Score Viewer.py
+#   └── ...
+
+# 6. 运行
 python "TAB Score Viewer.py"
 ```
 
@@ -133,6 +149,8 @@ TAB Score Viewer/
 ├── libfluidsynth-3.dll       # FluidSynth 动态库 (LGPL 2.1)
 ├── SDL3.dll                  # SDL3 动态库 (FluidSynth 依赖)
 ├── sndfile.dll               # libsndfile 动态库 (FluidSynth 依赖)
+├── soundfont/                # SoundFont 音色库目录（GTP音频播放必需）
+│   └── FluidR3_GM.sf2       # FluidSynth GM音色库 (~140MB, 需单独下载)
 ├── readme/                   # 项目文档
 │   ├── 功能更新.md           # 功能更新记录
 │   ├── 开发文档.md           # 开发技术文档
@@ -386,8 +404,9 @@ Key settings:
 
 - Icon: `icon.ico` (exe file + window/taskbar icon)
 - No console window (GUI app)
-- Includes: locales/, audio DLLs, icon file
+- Includes: locales/, audio DLLs, **soundfont/**, icon file
 - Hidden imports: ApolloTab modules
+- **注意**: 打包前请确保 `soundfont/FluidR3_GM.sf2` 已下载到项目目录
 
 ## License
 
@@ -402,6 +421,7 @@ Used via ApolloTab engine for MIDI audio synthesis.
 - **License**: [LGPL 2.1](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html)
 - **Repository**: <https://github.com/FluidSynth/fluidSynth>
 - **Usage**: Precompiled DLLs in project root (`libfluidsynth-3.dll`, `SDL3.dll`, `sndfile.dll`)
+- **SoundFont**: `soundfont/FluidR3_GM.sf2` (GM instrument samples, ~140MB, download required)
 
 ### ApolloTab
 

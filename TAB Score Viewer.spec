@@ -13,7 +13,7 @@
 
 使用方法:
   1. 安装pyinstaller: pip install pyinstaller
-  2. 执行打包:   pyinstaller guitar_tab_viewer.spec
+  2. 执行打包:   pyinstaller "TAB Score Viewer.spec"
   3. 输出目录: dist/TAB Score Viewer//
   4. 运行程序: dist/TAB Score Viewer/TAB Score Viewer.exe
 
@@ -40,6 +40,8 @@ datas = [
     (os.path.join(SPEC_DIR, 'libfluidsynth-3.dll'), '.'),
     (os.path.join(SPEC_DIR, 'SDL3.dll'), '.'),
     (os.path.join(SPEC_DIR, 'sndfile.dll'), '.'),
+    # SoundFont 音色库文件(GTP音频播放依赖，约140MB)
+    (os.path.join(SPEC_DIR, 'soundfont'), 'soundfont'),
     # 应用图标
     (os.path.join(SPEC_DIR, 'icon.ico'), '.'),
 ]
