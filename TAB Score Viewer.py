@@ -53,6 +53,8 @@ Dependencies / 依赖库:
                        # 图片处理(PNG/JPG/WEBP解码) (开源项目: Python Imaging Library)
   - guitarpro >= 0.11 # Guitar Pro file parsing (Open Source: pyguitarpro) - GTP dependency
                        # Guitar Pro文件解析 (开源项目: pyguitarpro) - GTP渲染功能依赖
+  - ApolloTab == 0.3.7  # GTP tablature rendering (Open Source: ApolloTab)
+                       # GTP六线谱渲染 (开源项目: ApolloTab)
 
 Tech Stack / 技术栈: Python 3.8+ / PyQt5 / PyMuPDF / Pillow / guitarpro(gtp_engine)
 Compatibility / 兼容性: Windows / Linux / Docker (all paths use relative paths)
@@ -124,18 +126,25 @@ def get_app_icon() -> QIcon:
     获取应用图标(QIcon对象)
     原理: 兼容开发和PyInstaller打包两种运行模式
       - 开发模式: 从脚本同目录读取icon.ico
-      - 打包模式(sys.frozen): 从exe所在目录读取icon.ico(非单文件模式数据在exe旁)
+      - 打包模式(sys.frozen): 优先从exe所在目录读取，若不存在则从_internal/子目录读取
     返回: QIcon对象，文件不存在时返回空 QIcon
     """
     if getattr(sys, 'frozen', False):
-        # PyInstaller打包模式: exe所在目录
+        # PyInstaller打包模式
         base = os.path.dirname(sys.executable)
+        # 优先查找exe所在目录(onedir模式数据文件可能在这里)
+        ico_path = os.path.join(base, "icon.ico")
+        if os.path.exists(ico_path):
+            return QIcon(ico_path)
+        # 次选: _internal/子目录(PyInstaller默认数据目录)
+        ico_path = os.path.join(base, "_internal", "icon.ico")
+        if os.path.exists(ico_path):
+            return QIcon(ico_path)
     else:
         # 开发模式: 脚本所在目录
-        base = _APP_BASE_DIR
-    ico_path = os.path.join(base, "icon.ico")
-    if os.path.exists(ico_path):
-        return QIcon(ico_path)
+        ico_path = os.path.join(_APP_BASE_DIR, "icon.ico")
+        if os.path.exists(ico_path):
+            return QIcon(ico_path)
     return QIcon()  # 文件不存在时返回空图标
 
 
@@ -2647,6 +2656,50 @@ class DisplayWidget(QWidget):
         if dlg.exec_()==QDialog.Accepted:
             self.parent_window.add_annotation(dlg.get_annotation())  # 内部已调用 _anno_save_snapshot
 
+    def _create_annotation_at(self, x: int, y: int)->None:
+        """
+        在指定坐标位置创建标注(由Ctrl+K快捷键或右键菜单触发)
+        
+        参数:
+          x: DisplayWidget本地坐标X(像素)
+          y: DisplayWidget本地坐标Y(像素)
+        
+        原理: 将像素坐标转换为相对坐标(0-1范围)，然后创建标注
+              与mouseDoubleClickEvent中新建标注逻辑相同
+        """
+        if not self.parent_window or not self.parent_window.images:
+            return
+        ww = self.width()
+        # 转换为相对坐标(0-1范围)
+        rel_x = max(0, min(1, (x - 10) / (ww - 20))) if ww > 20 else 0
+        if self.parent_window.images:
+            total_h = self._get_total_h()
+            base_y = -self.parent_window.current_position
+            rel_y = max(0, min(1, (y - base_y) / total_h)) if total_h > 0 else 0.5
+        else:
+            rel_y = 0.5
+        # 使用AnnotationCreateDialog创建标注
+        dlg = AnnotationCreateDialog(self, x=rel_x, y=rel_y)
+        if dlg.exec_() == QDialog.Accepted:
+            self.parent_window.add_annotation(dlg.get_annotation())
+
+    def contextMenuEvent(self, event: QContextMenuEvent)->None:
+        """
+        右键菜单 - 谱面右键菜单支持创建标注等操作
+        
+        功能:
+          - 创建标注: 在点击位置创建新标注
+          - 删除标注: 如果点击到已有标注可删除(可选)
+        """
+        if not self.parent_window or not self.parent_window.images:
+            return
+        menu = QMenu(self)
+        # 添加"创建标注"选项
+        create_action = menu.addAction(I18n.t("context_menu.add_annotation"))
+        create_action.triggered.connect(lambda: self._create_annotation_at(event.x(), event.y()))
+        # 显示菜单
+        menu.exec_(event.globalPos())
+
 
 # ============================================================
 # 主显示窗口 - 吉他谱查看与播放
@@ -2914,11 +2967,13 @@ class DisplayWindow(QMainWindow):
         self.audio_btn.setToolTip(I18n.t("toolbar.audio_tooltip"))
         self.audio_btn.setPopupMode(QToolButton.InstantPopup)  # 点击即弹出菜单
         self.audio_btn.setVisible(False)  # 非GTP文件时隐藏
-        # 设置音频按钮图标 / Set audio button icon
+        self.audio_btn.setMinimumSize(QSize(80, 36))  # 最小尺寸确保可见性
+        self.audio_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)  # 图标在文字左侧
+        # 设置音频按钮图标(增大尺寸提升可见度) / Set audio button icon (larger size for visibility)
         vol_icon = load_icon('volume')
         if not vol_icon.isNull():
             self.audio_btn.setIcon(vol_icon)
-            self.audio_btn.setIconSize(QSize(18, 18))
+            self.audio_btn.setIconSize(QSize(24, 24))  # 从18增大到24，更醒目
         
         # 创建下拉菜单
         audio_menu = QMenu(self)
@@ -2997,14 +3052,7 @@ class DisplayWindow(QMainWindow):
         sl.addWidget(self.curve_status_label)
         layout.addWidget(self.speed_group_box)  # 使用实例变量以便动态控制可见性
 
-        # === 状态信息 ===
-        ig=QGroupBox(I18n.t("control_panel.status_info"));il=QVBoxLayout(ig)
-        self.position_label=QLabel(I18n.t("control_panel.position_label", pct="0.0"));self.time_label=QLabel(I18n.t("control_panel.time_label", time="00:00"))
-        il.addWidget(self.position_label);il.addWidget(self.time_label)
-        self.ab_info_label=QLabel("")
-        self.ab_info_label.setStyleSheet(f"color:{ThemeManager.get('accent', '#F97316')};font-size:11px;")
-        il.addWidget(self.ab_info_label)
-        layout.addWidget(ig)
+        # 状态信息栏已移除(简化界面，位置/时间信息可在进度条提示中查看)
 
         # 快捷键帮助
         hg=QGroupBox(I18n.t("control_panel.shortcut_group"));hl=QVBoxLayout(hg)
@@ -3742,12 +3790,12 @@ class DisplayWindow(QMainWindow):
         if not hasattr(self, '_tick_counter'):
             self._tick_counter = 0
         self._tick_counter += 1
-        
-        self.position_label.setText(I18n.t("control_panel.position_label", pct=f"{pct:.1f}"))
+
+        # 状态信息栏已移除，跳过位置标签更新(简化界面)
         self.progress_bar.blockSignals(True)
         self.progress_bar.position = pct
         self.progress_bar.blockSignals(False)
-        
+
         secs = int(self.play_time)
         self.time_start_label.setText(f"{secs // 60:02d}:{secs % 60:02d}")
         
@@ -3915,7 +3963,7 @@ class DisplayWindow(QMainWindow):
             pct=(self.current_position/self.total_scroll_distance)*100
         else:
             pct=0
-        self.position_label.setText(I18n.t("control_panel.position_label", pct=f"{pct:.1f}"))
+        # 状态信息栏已移除，跳过位置标签更新(简化界面)
         self.progress_bar.blockSignals(True)
         self.progress_bar.position=pct
         self.progress_bar.blockSignals(False)
@@ -4261,6 +4309,25 @@ class DisplayWindow(QMainWindow):
         if hasattr(self, '_ann_manager') and self._ann_manager:
             self._ann_manager.annotations = self.annotations
             self._ann_manager._populate_list()
+
+    def _create_annotation_at_cursor(self)->None:
+        """
+        在鼠标光标位置创建标注(Ctrl+K快捷键或右键菜单触发)
+        
+        原理: 获取鼠标全局坐标，转换为DisplayWidget相对坐标，
+              然后调用标注创建逻辑(与双击空白处相同)
+        """
+        if not self.display_widget or not self.images:
+            return
+        # 获取鼠标在屏幕上的位置
+        cursor_pos = QCursor.pos()
+        # 转换为DisplayWidget的本地坐标
+        local_pos = self.display_widget.mapFromGlobal(cursor_pos)
+        # 确保坐标在控件范围内
+        x = max(0, min(local_pos.x(), self.display_widget.width()))
+        y = max(0, min(local_pos.y(), self.display_widget.height()))
+        # 调用DisplayWidget的创建标注方法
+        self.display_widget._create_annotation_at(x, y)
 
     # ========== A4导出(PNG/PDF，含标注，支持分轨/分页) ==========
 
@@ -4744,7 +4811,7 @@ class DisplayWindow(QMainWindow):
     # ========== 键盘事件 ==========
 
     def keyPressEvent(self,event:QKeyEvent)->None:
-        """键盘快捷键 - 含全局标注撤销/重做(Ctrl+Z / Ctrl+Y)"""
+        """键盘快捷键 - 含全局标注撤销/重做(Ctrl+Z / Ctrl+Y) + Ctrl+K创建标注"""
         try:
             # === 标注撤销/重做(优先于其他快捷键) ===
             if event.modifiers() & Qt.ControlModifier:
@@ -4752,7 +4819,10 @@ class DisplayWindow(QMainWindow):
                     self._anno_undo(); return
                 elif event.key() == Qt.Key_Y:      # Ctrl+Y: 重做标注
                     self._anno_redo(); return
-        
+                elif event.key() == Qt.Key_K:      # Ctrl+K: 在鼠标位置创建标注
+                    self._create_annotation_at_cursor()
+                    return
+
             if event.key()==Qt.Key_Space:          # 空格: 播放/暂停
                 self.toggle_playback()
             elif event.key()==Qt.Key_Up:           # 上箭头: 向上滚动

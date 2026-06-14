@@ -1,7 +1,7 @@
 # TAB Score Viewer v2.0.1 Release Note
 
 **Version**: v2.0.1
-**Release Date**: 2026-06-13
+**Release Date**: 2026-06-14
 **Author**: Zhu Wenqian
 
 ---
@@ -9,6 +9,14 @@
 ## Overview
 
 TAB Score Viewer v2.0.1 is a **major version iteration following v1.0.0**, with **9 intermediate versions** of continuous development. Building upon all core features from v1.0.0, this release adds **complete GTP guitar tablature rendering engine, audio playback, dark/light theme system, internationalization support, application icon & EXE packaging**, and fixes **30+ bugs**.
+
+This update (**2026-06-14**) focuses on **UI professionalization and code quality improvement**:
+- **SVG Icon System**: Replace emoji icons with Lucide-style SVG icons for professional UI standards
+- **Translation Completeness Fix**: Resolve 30 missing translation keys causing Terminal warnings
+- **Bilingual Comments**: Convert all code comments to English-Chinese bilingual format for international collaboration
+- **Documentation Optimization**: Reorganize README.md with English version first (international best practice)
+- **SoundFont Path Correction**: Adjust packaged executable path to `_internal/soundfont/` for PyInstaller onedir mode
+- **Play Button Style Fix**: Resolve button style mutation issue when clicking play/pause
 
 ---
 
@@ -26,7 +34,7 @@ TAB Score Viewer v2.0.1 is a **major version iteration following v1.0.0**, with 
 | v1.9.0 | 2026-06-12 | Internationalization (i18n) - Chinese/English bilingual support |
 | v1.9.1 | 2026-06-12 | Application icon + PyInstaller EXE packaging config |
 | **v2.0.0** | **2026-06-13** | **Dark/Light theme system + UI beautification** |
-| **v2.0.1** | **2026-06-13** | **Bug fix: GTP mode click-to-seek precise positioning** |
+| **v2.0.1** | **2026-06-14** | **SVG icons + Translation fix + Bilingual comments + Documentation optimization + Bug fixes** |
 
 ---
 
@@ -118,9 +126,174 @@ Visual rendering support for **18 playing technique symbols**:
 - Margin optimization: reduced from 2% to 0.5%, image spacing from 5px to 3px
 - Reserved 30px page number area, no content overlap
 
+### 11. SVG Icon System (v2.0.1) ⭐ UI Professionalization
+
+**Design Principle**: Following ui-ux-pro-max professional UI standards, replace emoji characters with vector SVG icons for better accessibility, scalability, and theme compatibility.
+
+**Implementation Details**:
+
+| Component | Description |
+|-----------|-------------|
+| `load_icon()` function | Load SVG icons from `icons/` directory as QIcon objects |
+| Path adaptation | Compatible with development mode and PyInstaller onedir mode (`_internal/` subdirectory) |
+| ModernButton enhancement | Support optional `icon_name` parameter, auto-load and display icon (16x16px, left of text) |
+| Icon library | 13 Lucide-style SVG icons created |
+
+**Icon Library** (13 icons):
+
+| Icon File | Usage | Visual Description |
+|-----------|-------|-------------------|
+| `annotate.svg` | Annotation button | Pencil/edit icon |
+| `export.svg` | Export button | Download arrow icon |
+| `play.svg` | Play button | Play triangle icon |
+| `stop.svg` | Stop button | Stop square icon |
+| `volume.svg` | Audio on | Speaker icon |
+| `volume-off.svg` | Audio off | Muted speaker icon |
+| `chart.svg` | Speed curve | Trending line icon |
+| `folder.svg` | Folder select | Folder icon |
+| `search.svg` | Search box | Magnifying glass icon |
+| `flag-a.svg` | Loop point A | Flag marker A |
+| `flag-b.svg` | Loop point B | Flag marker B |
+| `trash.svg` | Clear/delete | Trash bin icon |
+| `x-close.svg` | Close/clear | X mark icon |
+
+**Technical Flow**:
+```
+User clicks button → ModernButton.__init__(icon_name='play')
+    ↓
+load_icon('play') called
+    ↓
+Detect runtime mode:
+  ├─ Dev mode → _APP_BASE_DIR/icons/play.svg
+  └─ Packaged mode → exe_dir/_internal/icons/play.svg
+    ↓
+QIcon(svg_path) loads SVG file
+    ↓
+Qt rendering engine converts SVG to pixel icon (16x16)
+    ↓
+setIcon() displays on button
+```
+
+### 12. Bilingual Code Comments (v2.0.1)
+
+**Purpose**: Improve code readability for international developers and team collaboration.
+
+**Format Standard**:
+```python
+"""
+English description / 中文描述
+Principle: Technical explanation / 原理: 技术说明
+"""
+```
+
+**Coverage**: File header docstring, function documentation, class definitions, key logic comments
+
+### 13. Documentation Internationalization (v2.0.1)
+
+**README.md Reorganization**:
+- **English version moved to front** (international best practice)
+- Complete English documentation added: Features / Quick Start / Shortcuts / Mouse Operations / Project Structure / Tech Stack
+- Updated project structure diagram: Added `icons/` directory, SoundFont path marked as `_internal/soundfont`
+- New sections: SVG icon system description, packaging configuration details
+- Maintained bilingual navigation links
+
 ---
 
 ## Bug Fixes (v2.0.1 Focus + Historical Accumulation)
+
+### v2.0.1 - Complete Bug Fix Summary (2026-06-14 Update)
+
+#### 1. Play Button Style Mutation Issue ⭐ Critical UI Fix
+
+| Aspect | Detail |
+|--------|--------|
+| **Issue** | Clicking play button causes style mutation: rounded shadow button becomes flat color block |
+| **Root Cause** | `start_playback()`/`stop_playback()` directly call `setStyleSheet("background-color:#F59E0B;")` → Qt stylesheet is replaced entirely (not merged) → loses border-radius, font, shadow, hover effects, icon spacing |
+| **Impact** | Button loses: 8px border-radius, Microsoft YaHei 12px font, QGraphicsDropShadowEffect, hover/pressed/disabled states, icon 16x16 with custom padding |
+
+**Fix Solution**:
+
+1. **New method**: `ModernButton.set_color(color_key)` ([TAB Score Viewer.py#L1045-L1054](TAB%20Score%20Viewer.py))
+   ```python
+   def set_color(self, color_key: str) -> None:
+       """Dynamically change button theme color while preserving all UI properties"""
+       self.color_key = color_key
+       self.refresh_theme()  # Rebuild complete CSS (keep radius/font/shadow/icon)
+   ```
+
+2. **Replace direct style calls**:
+   - ❌ Old: `self.play_btn.setStyleSheet(f"background-color:{ThemeManager.get('warning')};")`
+   - ✅ New: `self.play_btn.set_color('warning')` → Orange (#F59E0B) for pause state
+   - ✅ New: `self.play_btn.set_color('success')` → Green (#10B981) for play state
+
+**Technical Principle**: Qt stylesheets use **complete replacement** not merging. Must rebuild full CSS string to preserve all properties.
+
+**Test Cases** (7 scenarios):
+
+| Case | Operation | Expected Result |
+|------|-----------|-----------------|
+| 1 | Initial state | Play button: green(success) + rounded + shadow + play icon △ |
+| 2 | Click "Play" | Button turns orange(warning), **keeps round/shadow/font/icon**, text changes to "Pause" |
+| 3 | Hover pause button | Background darkens (hover effect works), no style flicker |
+| 4 | Click "Pause" again | Button returns green(success), text changes to "Play", style intact |
+| 5 | Click "Stop" | Play button green + stop button gray(disabled) |
+| 6 | Switch dark→light theme | Button auto-adapts light theme, shadow color changes |
+| 7 | Rapid click play/pause | No style residue, complete refresh each toggle |
+
+---
+
+#### 2. Translation Key Completeness Fix (Terminal#29-45 Warnings)
+
+| Aspect | Detail |
+|--------|--------|
+| **Issue** | Startup outputs 30 warnings: `"Missing translation key: settings_window.*"` |
+| **Affected Files** | `locales/zh_CN.json`, `locales/en_US.json` |
+| **Root Cause** | Settings window UI added new text keys but translation files not updated |
+
+**30 Missing Keys Added**:
+
+| Category | Keys |
+|----------|------|
+| **UI Text** | `loading_init`, `folder_not_selected`, `folder_btn`, `language_label`, `theme_label` |
+| **File List** | `file_list_label`, `search_label`, `search_placeholder`, `search_clear` |
+| **Language Switch** | `language_switch_title`, `language_switch_msg` |
+| **Folder Ops** | `folder_dialog_title`, `loading_files`, `parent_dir`, `empty_folder` |
+| **Error Handling** | `dir_unavailable_title/msg`, `permission_denied_title/msg` |
+| **Navigation** | `loading_entering` |
+| **Context Menu** | `context_play_all`, `context_enter_folder`, `context_open_location`, `context_view_file`, `context_play_image`, `context_play_all_images` |
+| **Feedback** | `locate_fail_title/msg`, `open_fail_title/msg` |
+
+**Result**: ✅ Zero warnings on startup, all UI text properly translated
+
+---
+
+#### 3. SoundFont Path Correction for Packaged Executable
+
+| Aspect | Detail |
+|--------|--------|
+| **Issue** | SoundFont file not found in PyInstaller onedir packaged executable |
+| **Correct Path** | `dist/TAB Score Viewer/_internal/soundfont/FluidR3_GM.sf2` |
+| **Root Cause** | PyInstaller onedir mode places data files in `_internal/` subdirectory, not exe root |
+
+**Fix Implementation**:
+
+1. **Code modification** ([TAB Score Viewer.py#L3352-L3364](TAB%20Score%20Viewer.py)):
+   ```python
+   if getattr(sys, 'frozen', False):
+       # PyInstaller onedir: data files in _internal/ subdirectory
+       app_base = os.path.join(os.path.dirname(sys.executable), '_internal')
+   else:
+       app_base = _APP_BASE_DIR
+   sf_dir = os.path.join(app_base, 'soundfont')
+   ```
+
+2. **Spec file update** (`TAB Score Viewer.spec` datas list):
+   - Added: `icons/` directory → packaged to `_internal/icons/`
+   - Added: `soundfont/` directory → packaged to `_internal/soundfont/`
+
+**Compatibility**: Works regardless of CWD when launching program
+
+---
 
 ### v2.0.1 - GTP Click-to-Seek Precise Positioning (4 Iteration Fixes)
 
@@ -180,9 +353,22 @@ Visual rendering support for **18 playing technique symbols**:
 
 ## Changelog
 
+### v2.0.1 (2026-06-14) - UI Professionalization & Code Quality
+
 | File | Action | Description |
 |------|--------|-------------|
-| `TAB Score Viewer.py` | Refactored | Theme manager + I18n + performance optimization + all new features integrated |
+| `TAB Score Viewer.py` | **Modified** | Added `load_icon()` SVG loader, `ModernButton.set_color()`, bilingual comments, SoundFont `_internal/` path, play/pause style fix |
+| `icons/` | **New Directory** | 13 Lucide-style SVG icons (annotate/export/play/stop/volume/chart/folder/search/flag-a/flag-b/trash/x-close/volume-off) |
+| `locales/zh_CN.json` | **Modified** | Added 30 missing `settings_window.*` translation keys |
+| `locales/en_US.json` | **Modified** | Added 30 missing `settings_window.*` translation keys (English) |
+| `TAB Score Viewer.spec` | **Modified** | Added `icons/` and `soundfont/` to datas list for packaging |
+| `README.md` | **Reorganized** | English version moved to front, updated project structure, added SVG icon docs |
+| `readme/功能更新.md` | **Updated** | Complete v2.0.1 changelog with all bug fixes and features |
+
+### Historical Changelog (v1.0.0 - v2.0.0)
+
+| File | Action | Description |
+|------|--------|-------------|
 | `ApolloTab/player.py` | Added/Modified | is_loaded property + set_theme() proxy method |
 | `ApolloTab/` | New Directory | GTP standalone rendering engine library (parser/renderer/layout engine/data model) |
 | `locales/zh_CN.json` | New | Chinese translation file |
@@ -190,7 +376,6 @@ Visual rendering support for **18 playing technique symbols**:
 | `icon.ico` | New | Multi-size application icon |
 | `guitar_tab_viewer.spec` | New | PyInstaller packaging config |
 | `config/settings.json` | Modified | Added theme/language fields |
-| `readme/功能更新.md` | Updated | Full version update log |
 | `readme/开发文档.md` | Updated | Architecture/module/class docs synced |
 | `readme/实施文档.md` | Updated | Deployment docs synced |
 
@@ -203,19 +388,21 @@ Visual rendering support for **18 playing technique symbols**:
 |               SettingsWindow (Main Window)         |
 |  +----------+ +------------+ +------------------+  |
 |  | File List| | Toolbar    | | Bottom Progress   |  |
+|  | (SVG Icons│ | (SVG Icons) | | Bar w/ Page Input |  |
 |  +----------+ +------------+ | Bar w/ Page Input |  |
 |                             +------------------+  |
 |  +-----------------------------------------------+ |
 |  |           DisplayWindow (Tab Window)            | |
 |  |  +--------------+  +------------------------+  | |
 |  |  | DisplayWidget|  | Control Panel            |  | |
-|  |  | (Canvas Render)| | Play/Speed/Loop/Track   |  | |
+|  |  | (Canvas Render)| | Play/Pause(set_color)   |  | |
 |  |  +--------------+  +------------------------+  | |
 |  +-----------------------------------------------+ |
 +--------------------------------------------------+
 +--------------------------------------------------+
 |  ThemeManager (Singleton) <--> I18n (Singleton)   |
 |  |-> theme_changed signal     |-> language_changed |
+|  load_icon() -> SVG Icons (icons/ directory)       |
 |  ApolloTab (GTP Engine)                              |
 +--------------------------------------------------+
 ```
@@ -229,14 +416,56 @@ Visual rendering support for **18 playing technique symbols**:
 | Singleton Pattern | ThemeManager / I18n |
 | Factory Pattern | Worker classes for unified async task encapsulation |
 | Command Pattern | Undo/Redo snapshot stack |
+| **Facade Pattern** | `load_icon()` - Unified icon loading interface (dev/packaged mode) |
+| **Strategy Pattern** | `ModernButton.set_color()` - Dynamic theme color switching |
+
+**Key Technical Components (v2.0.1 New)**:
+
+| Component | Type | Purpose |
+|-----------|------|---------|
+| `load_icon()` | Function | SVG icon loader with path adaptation (dev vs `_internal/`) |
+| `ModernButton.set_color()` | Method | Dynamic color switching preserving full stylesheet |
+| `_build_style_with_icon()` | Method | CSS generator for icon buttons (padding/spacing adjustment) |
+| Path Adapter | Logic | `sys.frozen` detection for PyInstaller onedir mode compatibility |
 
 ---
 
 ## Roadmap (Future Versions)
 
+### Completed in v2.0.1 ✅
+- [x] SVG icon system (replace emoji with professional Lucide-style icons)
+- [x] Translation key completeness fix (30 missing keys resolved)
+- [x] Bilingual code comments (English-Chinese format)
+- [x] Documentation internationalization (README.md English first)
+- [x] SoundFont path correction for PyInstaller packaging
+- [x] Play button style mutation fix
+
+### Planned for Future Versions
 - [ ] Annotation import/export feature enhancement
 - [ ] Recently opened files list
 - [ ] Fullscreen mode
 - [ ] More playing technique symbol extensions
 - [ ] Plugin system
-- [ ] Cross-platform compatibility
+- [ ] Cross-platform compatibility enhancement
+
+---
+
+## Version Statistics
+
+| Metric | Value |
+|--------|-------|
+| **Total Versions** | 10 (v1.0.0 → v2.0.1) |
+| **Development Duration** | 8 days (2026-06-06 → 2026-06-14) |
+| **Lines of Code** | ~5300+ (main program) |
+| **Bug Fixes** | 30+ issues resolved |
+| **Design Patterns Used** | 7 (MVC, Observer, Singleton, Factory, Command, Facade, Strategy) |
+| **Supported Languages** | 2 (Chinese Simplified, English) |
+| **SVG Icons** | 13 (Lucide-style) |
+| **Translation Keys** | 150+ (complete UI coverage) |
+
+---
+
+**Document Version**: v2.0.1 Release Note
+**Last Updated**: 2026-06-14
+**Author**: Zhu Wenqian (14-year-old developer from China)
+**AI Assistance**: GLM-5V-Turbo (code assistance, human-led architecture decisions)
