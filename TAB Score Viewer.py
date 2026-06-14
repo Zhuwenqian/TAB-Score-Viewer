@@ -2817,6 +2817,16 @@ class DisplayWindow(QMainWindow):
         # === 点击跳转播放目标(防止_tick()音频时间覆盖点击位置) ===
         # 当用户点击谱面跳转播放时设置，_tick()在音频时间未追上之前使用此值
         self._click_jump_target:float = -1.0  # -1表示无待处理跳转
+
+        # === A-B循环seek保护标志(持续性保护，非一次性) ===
+        # [v2.0.2新增] 用于处理GTP音频seek延迟问题:
+        #   - 触发时机: _on_loop_mode_changed或_tick中执行region循环seek后设置
+        #   - 作用: 每帧检查time_based_pos是否已回落到B点以内，
+        #           是则解除保护(flag=False)，否则持续保持seek位置
+        #   - 原因: gtp_player.seek()后current_time_ms可能数帧内仍返回旧值
+        #           一次性保护(只跳1帧)不够，必须持续保护直到音频追上
+        #   - 清除时机: time_based_pos < end_position 时自动清除
+        self._region_loop_jumped: bool = False
         
         # === 总音频时长(ms)(用于进度条百分比计算) ===
         self._total_audio_duration_ms:float=0.0
@@ -3721,24 +3731,35 @@ class DisplayWindow(QMainWindow):
             else:
                 effective_time = audio_time_ms
 
-            # === 点击跳转保护: 如果有待处理的点击跳转目标，优先使用它 ===
-            # 原因: 点击谱面后音频引擎刚开始播放，audio_time_ms接近0，
-            #       _time_to_scroll_pos(接近0)会返回接近0的位置，覆盖掉用户点击的位置
-            # 策略: 当音频时间推导出的位置 < 跳转目标时，保持使用跳转目标
-            #       当音频时间追上或超过目标后，恢复正常的时间驱动模式
-            if self._click_jump_target >= 0:
-                time_based_pos = self._time_to_scroll_pos(effective_time)
-                if time_based_pos < self._click_jump_target:
-                    # 音频还没追上 → 保持点击位置
-                    self.current_position = self._click_jump_target
-                    self.play_time = effective_time / 1000.0
+            # === 时间驱动位置计算 ===
+            time_based_pos = self._time_to_scroll_pos(effective_time)
+
+            # === A-B循环seek持续性保护: 解决GTP seek延迟导致的死循环 ===
+            # [v2.0.2修复] 一次性标志只保护1帧不够(GTP seek延迟可跨多帧)
+            # 改为: 每帧检查时间位置是否已回落到B点以内
+            #   - 是(time_based_pct < end): 解除保护，正常更新时间位置
+            #   - 否(time_based_pct >= end): 持续保持seek位置，跳过更新
+            if (self._region_loop_jumped and self.loop_config.loop_type == 'region'
+                    and self.total_scroll_distance > 0):
+                tb_pct = (time_based_pos / self.total_scroll_distance) * 100
+                if tb_pct >= self.loop_config.end_position:
+                    # 音频seek还未生效(时间位置仍超B点) → 持续保持seek位置=start
+                    self.current_position = self.total_scroll_distance * self.loop_config.start_position / 100
                 else:
-                    # 音频已追上 → 清除标记，恢复正常模式
+                    # 音频已追到B点以内 → 解除保护，使用正常时间位置
                     self.current_position = time_based_pos
-                    self.play_time = effective_time / 1000.0
-                    self._click_jump_target = -1.0  # 清除跳转目标
+                    self._region_loop_jumped = False
+                self.play_time = effective_time / 1000.0
             else:
-                self.current_position = self._time_to_scroll_pos(effective_time)
+                # === 点击跳转保护: 点击谱面后音频刚开始播放，position被音频时间覆盖 ===
+                if self._click_jump_target >= 0:
+                    if time_based_pos < self._click_jump_target:
+                        self.current_position = self._click_jump_target
+                    else:
+                        self.current_position = time_based_pos
+                        self._click_jump_target = -1.0
+                else:
+                    self.current_position = time_based_pos
                 self.play_time = effective_time / 1000.0
 
             # 进度百分比基于音频时间
@@ -3758,6 +3779,8 @@ class DisplayWindow(QMainWindow):
                     self.current_position = self.total_scroll_distance * start_pct / 100
                     if self.gtp_player:
                         self.gtp_player.seek(target_time)
+                    # [v2.0.2修复] 设置seek保护标志，防止下一帧position被旧audio_time_ms覆盖
+                    self._region_loop_jumped = True
             elif effective_time >= total_dur:
                 self.current_position = self.total_scroll_distance
                 self.stop_playback(reset_position=True)  # 播放结束，重置位置
@@ -4080,13 +4103,46 @@ class DisplayWindow(QMainWindow):
             self.ab_info_label.setText(f"A-B: {start:.1f}% - {end:.1f}%")
 
     def _on_loop_mode_changed(self,idx:int)->None:
-        """循环模式改变"""
+        """
+        循环模式改变
+        
+        [v2.0.2 修复] 切换到A-B循环时若当前位置已超过B点导致"播不了"问题:
+          - 问题: 用户设A/B点后立即切换循环，若当前position >= end_position，
+                 _tick()会立即触发循环检查→seek到A点，但GTP音频seek有延迟，
+                 下一帧audio_time_ms仍返回旧值→position被覆盖回B点→再次seek
+                 →造成死循环，用户看到"播不了"
+          - 修复: 切换时若当前位置>=B点，立即seek到A点，并设置_region_loop_jumped
+                 标志保护下一帧的position不被audio_time_ms覆盖
+        """
         modes=['none','all','region']
         self.loop_config.loop_type=modes[idx]
         self.loop_config.is_enabled=(idx>0)
-        if idx==2 and self.loop_config.end_position<self.loop_config.start_position:
-            if hasattr(self, 'ab_info_label'):
+
+        if idx==2:  # A-B区域循环模式
+            # 步骤1: 如果A>B(用户先设B点后设A点)，交换使start<end
+            needs_swap=self.loop_config.end_position<self.loop_config.start_position
+            if needs_swap:
+                self.loop_config.start_position,self.loop_config.end_position = \
+                    self.loop_config.end_position,self.loop_config.start_position
+                self.progress_bar.set_region(self.loop_config.start_position,self.loop_config.end_position)
+
+            # 步骤2: 播放中且当前位置已超过B点: 立即seek到A点，防止下个_tick死循环
+            if self.timer.isActive():
+                pos_pct=(self.current_position/self.total_scroll_distance*100) if self.total_scroll_distance>0 else 0
+                if pos_pct>=self.loop_config.end_position:
+                    start_pct=self.loop_config.start_position
+                    self.current_position=self.total_scroll_distance*start_pct/100
+                    # GTP音频模式: 同步seek
+                    if self.gtp_player and self.gtp_player.is_audio_ready:
+                        total_dur=getattr(self,'_total_audio_duration_ms',0) or 1
+                        self.gtp_player.seek(total_dur*start_pct/100)
+                    # 设置保护标志: 下一帧_tick跳过position更新(GTP seek有延迟)
+                    self._region_loop_jumped=True
+
+            # 步骤3: 显示A>B警告
+            if needs_swap and hasattr(self,'ab_info_label'):
                 self.ab_info_label.setText(I18n.t("ab_info.ab_set_both"))
+
         elif idx==0:
             self.progress_bar.clear_region()
             if hasattr(self, 'ab_info_label'):
