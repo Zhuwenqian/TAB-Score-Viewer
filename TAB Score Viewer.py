@@ -1866,6 +1866,7 @@ class DisplayWidget(QWidget):
         # === 标注悬停状态(用于显示删除按钮) ===
         self._hover_ann_id: str = ""       # 当前鼠标悬停的标注ID(空=未悬停)
         self._delete_btn_rect: QRect = QRect()  # 删除按钮的屏幕区域(用于点击检测)
+        self._pending_delete_id: str = ""   # 待删除的标注ID(延迟删除机制，双击时清空以取消)
 
         # === 图片缓存(避免每帧重新scale，解决播放卡顿) ===
         self._cached_scaled: List[QPixmap] = []   # 缩放后的图片缓存
@@ -2229,30 +2230,48 @@ class DisplayWidget(QWidget):
         原理:
           - 拖动结束: 保存位置变化到撤销栈和文件
           - 非拖动但悬停状态: 检测是否点击了删除按钮区域
+        
+        [v2.0.2 Bug修复] 双击标注误删问题:
+          - 问题: 双击标注时，第一次mouseReleaseEvent会误判为"点击删除按钮"
+                 导致标注被删除，后续mouseDoubleClickEvent无法打开编辑界面
+          - 修复: 使用QTimer.singleShot延迟删除(200ms)，如果在双击间隔内收到双击事件则取消删除
         """
+        from PyQt5.QtWidgets import QApplication
+
         if event.button() == Qt.LeftButton and self._drag_ann_id:
             self.setCursor(Qt.ArrowCursor)
-            # === 关键修复: 区分"点击X删除"和"拖动标注" ===
-            # 原因: _hit_annotation() 扩展了右边界28px以包含X删除按钮，
-            #       导致点X区域也会进入拖动模式。需要在release时判断：
-            #       鼠标几乎没移动(是点击而非拖动) + 在X按钮区域内 → 走删除逻辑
+            # === 区分"点击×删除按钮"和"拖动标注" ===
+            # 原理: _hit_annotation() 扩展了右边界28px以包含×删除按钮，
+            #       导致点×区域也会进入拖动模式。需要在release时判断：
+            #       鼠标几乎没移动(是点击而非拖动) + 在×按钮精确区域内 → 走删除逻辑
+            #
+            # [v2.0.2修复] 只有点击×按钮的精确区域(_delete_btn_rect)才触发删除，
+            #              不再使用 _hit_annotation() 作为删除判断条件(避免双击误删)
             drag_distance = (event.pos() - self._drag_mouse_start).manhattanLength()
             is_click_not_drag = (drag_distance < 5)  # 移动<5px视为点击
-            is_on_delete_btn = (self._delete_btn_rect.contains(event.pos()) or
-                                (self._hover_ann_id and self._hit_annotation(event.x(), event.y()) is not None))
+            is_on_x_button = self._delete_btn_rect.contains(event.pos())  # 只检测×按钮精确区域
 
-            if is_click_not_drag and is_on_delete_btn and self.parent_window:
-                # 点击了X删除按钮 → 执行删除（不保存位置变化）
+            if is_click_not_drag and is_on_x_button and self.parent_window:
+                # 点击了×删除按钮 → 延迟执行删除(200ms后)，以便区分单击和双击
                 del_id = self._drag_ann_id  # _drag_ann_id就是当前标注ID
-                self.parent_window._anno_save_snapshot()
-                self.parent_window.annotations = [
-                    a for a in self.parent_window.annotations if a.id != del_id
-                ]
-                self.parent_window._save_annotations()
-                self.set_annotations(self.parent_window.annotations)
-                self._hover_ann_id = ""
-                self._delete_btn_rect = QRect()
-                self._drag_ann_id = ""
+                self._pending_delete_id = del_id  # 记录待删除的标注ID
+
+                def do_delete():
+                    """延迟执行的删除操作"""
+                    if hasattr(self, '_pending_delete_id') and self._pending_delete_id and self._pending_delete_id == del_id:
+                        self.parent_window._anno_save_snapshot()
+                        self.parent_window.annotations = [
+                            a for a in self.parent_window.annotations if a.id != del_id
+                        ]
+                        self.parent_window._save_annotations()
+                        self.set_annotations(self.parent_window.annotations)
+                        self._hover_ann_id = ""
+                        self._delete_btn_rect = QRect()
+                        self._drag_ann_id = ""
+                        self._pending_delete_id = ""
+
+                # 延迟200ms执行删除(QApplication.doubleClickInterval()通常为400ms)
+                QTimer.singleShot(200, do_delete)
                 event.accept()
                 return
 
@@ -2269,25 +2288,32 @@ class DisplayWidget(QWidget):
             event.accept()
             return
 
-        # === 检测是否点击了删除按钮(非拖动状态下) ===
-        # 修复: 播放时内容会滚动，paintEvent中缓存的_delete_btn_rect可能已过时。
-        #       因此同时用 _hit_annotation 实时验证鼠标当前位置是否仍在标注区域内，
-        #       任一条件满足即触发删除，确保播放中也能正常点击X按钮。
-        is_on_stale_rect = self._delete_btn_rect.contains(event.pos())
-        is_currently_hovered = (self._hover_ann_id and self._hit_annotation(event.x(), event.y()) is not None)
-        if event.button() == Qt.LeftButton and self._hover_ann_id and (is_on_stale_rect or is_currently_hovered):
+        # === 检测是否点击了×删除按钮(非拖动状态下) ===
+        # [v2.0.2修复] 只有点击×按钮的精确区域(_delete_btn_rect)才触发删除，
+        #              不再使用 _hit_annotation() 作为删除判断条件(避免双击误删)
+        is_on_x_button = self._delete_btn_rect.contains(event.pos())
+        if event.button() == Qt.LeftButton and self._hover_ann_id and is_on_x_button:
             if self.parent_window:
-                # 找到要删除的标注并执行删除
+                # 点击了×按钮 → 延迟执行删除(200ms)，以便区分单击和双击
                 del_id = self._hover_ann_id
-                self.parent_window._anno_save_snapshot()  # 删除前保存快照(支持撤销)
-                self.parent_window.annotations = [
-                    a for a in self.parent_window.annotations if a.id != del_id
-                ]
-                self.parent_window._save_annotations()
-                self.set_annotations(self.parent_window.annotations)
-                # 清除悬停状态
-                self._hover_ann_id = ""
-                self._delete_btn_rect = QRect()
+                self._pending_delete_id = del_id  # 记录待删除的标注ID
+
+                def do_delete2():
+                    """延迟执行的删除操作（非拖动状态）"""
+                    if hasattr(self, '_pending_delete_id') and self._pending_delete_id and self._pending_delete_id == del_id:
+                        self.parent_window._anno_save_snapshot()  # 删除前保存快照(支持撤销)
+                        self.parent_window.annotations = [
+                            a for a in self.parent_window.annotations if a.id != del_id
+                        ]
+                        self.parent_window._save_annotations()
+                        self.set_annotations(self.parent_window.annotations)
+                        # 清除悬停状态
+                        self._hover_ann_id = ""
+                        self._delete_btn_rect = QRect()
+                        self._pending_delete_id = ""
+
+                # 延迟200ms执行删除
+                QTimer.singleShot(200, do_delete2)
             event.accept()
             return
 
@@ -2592,8 +2618,16 @@ class DisplayWidget(QWidget):
         功能: 双击已有标注可打开编辑对话框进行修改或删除
         创建标注请使用: Ctrl+K快捷键 或 右键菜单"添加标注"
         
+        [v2.0.2 修复] 取消延迟删除:
+          - 原因: mouseReleaseEvent会延迟200ms执行删除(区分单击/双击)
+          - 修复: 双击时清除_pending_delete_id，取消待执行的删除操作
+        
         命中区域: 基于_draw_one_ann中的bg_rect描边矩形(含padding)
         """
+        # === 取消可能存在的延迟删除操作 ===
+        if hasattr(self, '_pending_delete_id'):
+            self._pending_delete_id = ""  # 清除待删除ID，取消延迟删除
+
         if not self.parent_window or not self.parent_window.images: return
         cx,cy=event.x(),event.y()
         ww=self.width()
@@ -4042,7 +4076,8 @@ class DisplayWindow(QMainWindow):
         self.loop_config.start_position=start
         self.loop_config.end_position=end
         self.progress_bar.set_region(start,end)
-        self.ab_info_label.setText(f"A-B: {start:.1f}% - {end:.1f}%")
+        if hasattr(self, 'ab_info_label'):
+            self.ab_info_label.setText(f"A-B: {start:.1f}% - {end:.1f}%")
 
     def _on_loop_mode_changed(self,idx:int)->None:
         """循环模式改变"""
@@ -4050,10 +4085,12 @@ class DisplayWindow(QMainWindow):
         self.loop_config.loop_type=modes[idx]
         self.loop_config.is_enabled=(idx>0)
         if idx==2 and self.loop_config.end_position<self.loop_config.start_position:
-            self.ab_info_label.setText(I18n.t("ab_info.ab_set_both"))
+            if hasattr(self, 'ab_info_label'):
+                self.ab_info_label.setText(I18n.t("ab_info.ab_set_both"))
         elif idx==0:
             self.progress_bar.clear_region()
-            self.ab_info_label.setText("")
+            if hasattr(self, 'ab_info_label'):
+                self.ab_info_label.setText("")
 
     def _set_ab_point(self,point:str)->None:
         """设置A/B点"""
@@ -4066,14 +4103,16 @@ class DisplayWindow(QMainWindow):
         else:
             self.loop_config.end_position=pct
         self.progress_bar.set_region(self.loop_config.start_position,self.loop_config.end_position)
-        self.ab_info_label.setText(f"A-B: {self.loop_config.start_position:.1f}% - {self.loop_config.end_position:.1f}%")
+        if hasattr(self, 'ab_info_label'):
+            self.ab_info_label.setText(f"A-B: {self.loop_config.start_position:.1f}% - {self.loop_config.end_position:.1f}%")
 
     def _clear_ab_points(self)->None:
         """清除AB点"""
         self.loop_config.start_position=0
         self.loop_config.end_position=100
         self.progress_bar.clear_region()
-        self.ab_info_label.setText("")
+        if hasattr(self, 'ab_info_label'):
+            self.ab_info_label.setText("")
 
     # ========== 标注管理 ==========
 
