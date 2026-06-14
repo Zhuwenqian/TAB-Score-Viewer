@@ -2817,16 +2817,6 @@ class DisplayWindow(QMainWindow):
         # === 点击跳转播放目标(防止_tick()音频时间覆盖点击位置) ===
         # 当用户点击谱面跳转播放时设置，_tick()在音频时间未追上之前使用此值
         self._click_jump_target:float = -1.0  # -1表示无待处理跳转
-
-        # === A-B循环seek保护标志(持续性保护，非一次性) ===
-        # [v2.0.2新增] 用于处理GTP音频seek延迟问题:
-        #   - 触发时机: _on_loop_mode_changed或_tick中执行region循环seek后设置
-        #   - 作用: 每帧检查time_based_pos是否已回落到B点以内，
-        #           是则解除保护(flag=False)，否则持续保持seek位置
-        #   - 原因: gtp_player.seek()后current_time_ms可能数帧内仍返回旧值
-        #           一次性保护(只跳1帧)不够，必须持续保护直到音频追上
-        #   - 清除时机: time_based_pos < end_position 时自动清除
-        self._region_loop_jumped: bool = False
         
         # === 总音频时长(ms)(用于进度条百分比计算) ===
         self._total_audio_duration_ms:float=0.0
@@ -3722,6 +3712,9 @@ class DisplayWindow(QMainWindow):
 
         if use_time_scroll:
             # --- 时间驱动模式: 滚动位置由音乐时间决定 ---
+            # [v2.0.4] 循环逻辑已下沉到库层(SynthEngine内置A/B循环)
+            # UI层只需正常读取audio_time_ms并计算position即可
+            # 库层在音频线程内部处理循环重启，无竞态、无需冷却、无需模拟时钟
             audio_time_ms = self.gtp_player.current_time_ms
             # 用速度曲线调整时间流逝速度(曲线加速=时间变快)
             if self.speed_curve.is_enabled and len(self.speed_curve.points) >= 2:
@@ -3731,59 +3724,34 @@ class DisplayWindow(QMainWindow):
             else:
                 effective_time = audio_time_ms
 
-            # === 时间驱动位置计算 ===
+            # === 时间驱动位置计算（干净版：无冷却、无模拟时钟） ===
             time_based_pos = self._time_to_scroll_pos(effective_time)
 
-            # === A-B循环seek持续性保护: 解决GTP seek延迟导致的死循环 ===
-            # [v2.0.2修复] 一次性标志只保护1帧不够(GTP seek延迟可跨多帧)
-            # 改为: 每帧检查时间位置是否已回落到B点以内
-            #   - 是(time_based_pct < end): 解除保护，正常更新时间位置
-            #   - 否(time_based_pct >= end): 持续保持seek位置，跳过更新
-            if (self._region_loop_jumped and self.loop_config.loop_type == 'region'
-                    and self.total_scroll_distance > 0):
-                tb_pct = (time_based_pos / self.total_scroll_distance) * 100
-                if tb_pct >= self.loop_config.end_position:
-                    # 音频seek还未生效(时间位置仍超B点) → 持续保持seek位置=start
-                    self.current_position = self.total_scroll_distance * self.loop_config.start_position / 100
+            if self._click_jump_target >= 0:
+                if time_based_pos < self._click_jump_target:
+                    self.current_position = self._click_jump_target
                 else:
-                    # 音频已追到B点以内 → 解除保护，使用正常时间位置
                     self.current_position = time_based_pos
-                    self._region_loop_jumped = False
-                self.play_time = effective_time / 1000.0
+                    self._click_jump_target = -1.0
             else:
-                # === 点击跳转保护: 点击谱面后音频刚开始播放，position被音频时间覆盖 ===
-                if self._click_jump_target >= 0:
-                    if time_based_pos < self._click_jump_target:
-                        self.current_position = self._click_jump_target
-                    else:
-                        self.current_position = time_based_pos
-                        self._click_jump_target = -1.0
-                else:
-                    self.current_position = time_based_pos
-                self.play_time = effective_time / 1000.0
+                self.current_position = time_based_pos
 
-            # 进度百分比基于音频时间
+            self.play_time = effective_time / 1000.0
+
             total_dur = getattr(self, '_total_audio_duration_ms', 0) or 1
             pct = min((effective_time / total_dur) * 100, 100)
 
-            # 循环检查(时间模式)
-            should_loop = self._check_loop_condition()
-            if should_loop:
-                if self.loop_config.loop_type == 'all':
-                    self.current_position = 0; self.play_time = 0
+            # === 全曲循环(all模式): UI层仍需处理(库层只支持region循环) ===
+            if self.loop_config.is_enabled and self.loop_config.loop_type == 'all':
+                if effective_time >= total_dur:
+                    self.current_position = 0
+                    self.play_time = 0
                     if self.gtp_player:
                         self.gtp_player.seek(0)
-                elif self.loop_config.loop_type == 'region':
-                    start_pct = self.loop_config.start_position
-                    target_time = total_dur * start_pct / 100
-                    self.current_position = self.total_scroll_distance * start_pct / 100
-                    if self.gtp_player:
-                        self.gtp_player.seek(target_time)
-                    # [v2.0.2修复] 设置seek保护标志，防止下一帧position被旧audio_time_ms覆盖
-                    self._region_loop_jumped = True
+            # === 播放结束(region循环由库层自动处理，不会到达这里) ===
             elif effective_time >= total_dur:
                 self.current_position = self.total_scroll_distance
-                self.stop_playback(reset_position=True)  # 播放结束，重置位置
+                self.stop_playback(reset_position=True)
 
         else:
             # --- 线性恒速模式(无音频时降级使用) ---
@@ -4095,24 +4063,32 @@ class DisplayWindow(QMainWindow):
             self._sync_play_time_from_position()
 
     def _on_region_selected(self,start:float,end:float)->None:
-        """A-B区域选择"""
+        """A-B区域选择(进度条Ctrl+Click=设A, Shift+Click=设B)"""
         self.loop_config.start_position=start
         self.loop_config.end_position=end
         self.progress_bar.set_region(start,end)
         if hasattr(self, 'ab_info_label'):
             self.ab_info_label.setText(f"A-B: {start:.1f}% - {end:.1f}%")
+        
+        # [v2.0.4] 如果已在region模式，立即同步到库层
+        if (self.loop_config.is_enabled 
+            and self.loop_config.loop_type == 'region'
+            and self.gtp_player 
+            and self.gtp_player.is_audio_ready):
+            self.gtp_player.set_loop_region_by_position(
+                start_pct=self.loop_config.start_position,
+                end_pct=self.loop_config.end_position
+            )
 
     def _on_loop_mode_changed(self,idx:int)->None:
         """
         循环模式改变
         
-        [v2.0.2 修复] 切换到A-B循环时若当前位置已超过B点导致"播不了"问题:
-          - 问题: 用户设A/B点后立即切换循环，若当前position >= end_position，
-                 _tick()会立即触发循环检查→seek到A点，但GTP音频seek有延迟，
-                 下一帧audio_time_ms仍返回旧值→position被覆盖回B点→再次seek
-                 →造成死循环，用户看到"播不了"
-          - 修复: 切换时若当前位置>=B点，立即seek到A点，并设置_region_loop_jumped
-                 标志保护下一帧的position不被audio_time_ms覆盖
+        [v2.0.4] A/B循环逻辑已下沉到库层(SynthEngine内置):
+          - 切换到region模式时，调用 gtp_player.set_loop_region_by_position() 
+            将百分比转换为小节索引，再基于小节边界设置循环
+          - 切换到none模式时，调用 gtp_player.clear_loop_region() 取消循环
+          - UI层不再需要任何冷却/帧计数器/模拟时钟机制
         """
         modes=['none','all','region']
         self.loop_config.loop_type=modes[idx]
@@ -4126,47 +4102,104 @@ class DisplayWindow(QMainWindow):
                     self.loop_config.end_position,self.loop_config.start_position
                 self.progress_bar.set_region(self.loop_config.start_position,self.loop_config.end_position)
 
-            # 步骤2: 播放中且当前位置已超过B点: 立即seek到A点，防止下个_tick死循环
-            if self.timer.isActive():
-                pos_pct=(self.current_position/self.total_scroll_distance*100) if self.total_scroll_distance>0 else 0
-                if pos_pct>=self.loop_config.end_position:
-                    start_pct=self.loop_config.start_position
-                    self.current_position=self.total_scroll_distance*start_pct/100
-                    # GTP音频模式: 同步seek
-                    if self.gtp_player and self.gtp_player.is_audio_ready:
-                        total_dur=getattr(self,'_total_audio_duration_ms',0) or 1
-                        self.gtp_player.seek(total_dur*start_pct/100)
-                    # 设置保护标志: 下一帧_tick跳过position更新(GTP seek有延迟)
-                    self._region_loop_jumped=True
+            # 步骤2: 防御性检查 — 如果A/B仍为默认值(0/100)，说明用户还没手动设置过
+            # 此时使用合理的默认值: A=开头(0%), B=结尾(100%)，即全谱循环
+            # 用户后续通过Ctrl/Shift点击进度条或点击A/B按钮可重新设定
+            if (self.loop_config.start_position == 0.0 
+                and self.loop_config.end_position == 100.0):
+                print("[DisplayWindow] A/B循环: 使用默认值(0%-100%), 用户尚未手动设置A/B点")
+            
+            # 步骤3: 通过库层API设置基于小节的循环(核心改动!)
+            # 将UI层的百分比位置→转换为小节索引→对齐到小节边界→设置循环
+            if self.gtp_player and self.gtp_player.is_audio_ready:
+                result = self.gtp_player.set_loop_region_by_position(
+                    start_pct=self.loop_config.start_position,
+                    end_pct=self.loop_config.end_position
+                )
+                if not result:
+                    print(f"[DisplayWindow] 警告: 库层循环设置失败 "
+                          f"(start={self.loop_config.start_position:.1f}%, "
+                          f"end={self.loop_config.end_position:.1f}%)")
+                
+                # [v2.0.4 修复] 设置循环后立即seek到A点(如果正在播放)
+                # set_loop_region()只设置循环参数，不会主动跳转
+                # 用户期望切换到region模式后从A点开始循环播放
+                if self.timer.isActive() and result:
+                    start_pct = self.loop_config.start_position
+                    total_dur = getattr(self, '_total_audio_duration_ms', 0) or 60000
+                    target_ms = total_dur * start_pct / 100
+                    print(f"[DisplayWindow] 循环已启用, 立即seek到A点: {target_ms:.0f}ms")
+                    try:
+                        self.gtp_player.seek(target_ms)
+                        # 同步UI position到A点
+                        if self.total_scroll_distance > 0:
+                            self.current_position = self.total_scroll_distance * start_pct / 100
+                        self.play_time = target_ms / 1000.0
+                    except Exception as e:
+                        print(f"[DisplayWindow] seek到A点失败: {e}")
 
-            # 步骤3: 显示A>B警告
+            # 步骤4: 显示A>B警告
             if needs_swap and hasattr(self,'ab_info_label'):
                 self.ab_info_label.setText(I18n.t("ab_info.ab_set_both"))
 
         elif idx==0:
+            # 清除循环设置
+            if self.gtp_player and self.gtp_player.is_audio_ready:
+                self.gtp_player.clear_loop_region()
             self.progress_bar.clear_region()
             if hasattr(self, 'ab_info_label'):
                 self.ab_info_label.setText("")
 
     def _set_ab_point(self,point:str)->None:
-        """设置A/B点"""
-        if self.total_scroll_distance>0:
-            pct=(self.current_position/self.total_scroll_distance)*100
+        """
+        设置A/B点
+        
+        [v2.0.4 修复] 优先使用GTP播放时间计算百分比(而非UI层滚动位置)
+        原因: current_position在未播放/未滚动时为0，导致pct=0→小节索引=0
+        新方案: 
+          - GTP模式: 用 audio_time_ms / total_duration_ms → 准确反映当前播放到哪个小节
+          - 非GTP/off模式: 回退到 current_position / total_scroll_distance
+        """
+        # 优先用GTP音频时间(更准确: 直接对应小节位置)
+        if (self.gtp_player and self.gtp_player.is_audio_ready 
+            and self.gtp_player.total_duration_ms > 0):
+            pct = (self.gtp_player.current_time_ms / self.gtp_player.total_duration_ms) * 100
+            source = f"audio_time={self.gtp_player.current_time_ms:.0f}ms"
+        elif self.total_scroll_distance > 0:
+            pct = (self.current_position / self.total_scroll_distance) * 100
+            source = f"scroll_pos={self.current_position:.0f}"
         else:
-            pct=0
+            pct = 0
+            source = "default=0"
+        
         if point=='a':
-            self.loop_config.start_position=pct
+            self.loop_config.start_position = pct
+            print(f"[DisplayWindow] 设A点: {source}, pct={pct:.1f}%")
         else:
-            self.loop_config.end_position=pct
+            self.loop_config.end_position = pct
+            print(f"[DisplayWindow] 设B点: {source}, pct={pct:.1f}%")
         self.progress_bar.set_region(self.loop_config.start_position,self.loop_config.end_position)
         if hasattr(self, 'ab_info_label'):
             self.ab_info_label.setText(f"A-B: {self.loop_config.start_position:.1f}% - {self.loop_config.end_position:.1f}%")
+        
+        # [v2.0.4] A/B两点都设置好后，立即同步到库层(基于小节的循环)
+        if (self.loop_config.is_enabled 
+            and self.loop_config.loop_type == 'region'
+            and self.gtp_player 
+            and self.gtp_player.is_audio_ready):
+            self.gtp_player.set_loop_region_by_position(
+                start_pct=self.loop_config.start_position,
+                end_pct=self.loop_config.end_position
+            )
 
     def _clear_ab_points(self)->None:
         """清除AB点"""
         self.loop_config.start_position=0
         self.loop_config.end_position=100
         self.progress_bar.clear_region()
+        # [v2.0.4] 同步清除库层循环设置
+        if self.gtp_player and self.gtp_player.is_audio_ready:
+            self.gtp_player.clear_loop_region()
         if hasattr(self, 'ab_info_label'):
             self.ab_info_label.setText("")
 
