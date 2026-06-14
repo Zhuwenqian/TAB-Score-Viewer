@@ -106,7 +106,7 @@ from PyQt5.QtGui import (
 from PyQt5.QtCore import (
     Qt, QTimer, QRect, QSize, QPoint, QRunnable, QThreadPool,
     pyqtSignal, QObject, QEasingCurve, QPropertyAnimation,
-    QRectF, QPointF, pyqtProperty, QBuffer
+    QRectF, QPointF, pyqtProperty, QBuffer, QEvent
 )
 
 # 第三方库
@@ -1182,20 +1182,17 @@ class TrackVolumeSlider(QWidget):
         self._last_y: int = 0                 # 拖动起始Y坐标
         
         # UI尺寸常量(可调整效果)
-        self.SLIDER_WIDTH = 22                # 滑块轨道宽度(px)
-        self.HANDLE_HEIGHT = 28               # 滑块手柄高度(px)
-        self.WIDGET_WIDTH = 56                # 组件总宽度(px)
-        self.WIDGET_HEIGHT = 180              # 组件总高度(px)
-        self.SCALE_WIDTH = 20                 # 刻度区宽度(px)
+        self.SLIDER_WIDTH = 16                # 滑块轨道宽度(px)
+        self.HANDLE_HEIGHT = 18               # 滑块手柄高度(px)
+        self.WIDGET_WIDTH = 48                # 组件总宽度(px)
+        self.WIDGET_HEIGHT = 140              # 组件总高度(px)
+        self.SCALE_WIDTH = 0                  # 刻度区宽度(px) - 不绘制左侧刻度，节省空间
         
         # 设置固定尺寸
         self.setFixedWidth(self.WIDGET_WIDTH)
         self.setFixedHeight(self.WIDGET_HEIGHT)
         self.setCursor(QCursor(Qt.PointingHandCursor))
         self.setMouseTracking(True)
-        
-        # 启用鼠标跟踪(用于hover效果)
-        self.setTracking(True)
 
     def set_db_value(self, db: float) -> None:
         """
@@ -1299,7 +1296,7 @@ class TrackVolumeSlider(QWidget):
         track_rect = QRect(track_x, track_top, self.SLIDER_WIDTH, track_height)
         painter.fillRect(track_rect, QColor(bg_card))
         painter.setPen(QPen(QColor(border_color), 1))
-        painter.drawRounded(track_rect, 3, 3)
+        painter.drawRoundedRect(track_rect, 3, 3)
         
         # 已填充部分(当前位置到顶部)
         handle_y = self._db_to_y(self._db_value)
@@ -1330,7 +1327,7 @@ class TrackVolumeSlider(QWidget):
         
         painter.setBrush(handle_gradient)
         painter.setPen(QPen(QColor(border_color), 1))
-        painter.drawRounded(handle_rect, 4, 4)
+        painter.drawRoundedRect(handle_rect, 4, 4)
         
         # 手柄上的指示线
         painter.setPen(QPen(QColor(text_primary), 2))
@@ -3394,15 +3391,16 @@ class DisplayWindow(QMainWindow):
         # 使用QScrollArea包裹，防止音轨过多时撑开面板
         self.volume_scroll = QScrollArea()
         self.volume_scroll.setWidgetResizable(True)
-        self.volume_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.volume_scroll.setMaximumHeight(200)  # 限制最大高度
+        self.volume_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)  # 改为需要时显示
+        self.volume_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.volume_scroll.setMinimumHeight(190)  # 设置最小高度确保可见
         self.volume_scroll.setVisible(False)  # 默认隐藏
 
         # 音轨滑块容器(水平排列所有滑块)
         self.volume_container = QWidget()
         self.volume_slider_layout = QHBoxLayout(self.volume_container)
-        self.volume_slider_layout.setSpacing(6)
-        self.volume_slider_layout.setContentsMargins(2, 0, 2, 0)
+        self.volume_slider_layout.setSpacing(1)  # 超紧凑间距
+        self.volume_slider_layout.setContentsMargins(1, 0, 1, 0)
         self.volume_scroll.setWidget(self.volume_container)
 
         volume_layout.addWidget(self.volume_scroll)
@@ -3605,12 +3603,13 @@ class DisplayWindow(QMainWindow):
           - 音轨切换时不需要重建(仅首次加载时创建)
         
         UI布局:
-          [音轨1] [音轨2] [音轨3] ... [Master]
-          每个滑块: 56px宽 × 180px高，带dB刻度
+          [Master] [音轨1] [音轨2] [音轨3] ...
+          每个滑块: 36px宽 × 150px高，带dB刻度(超紧凑模式)
         
         音量范围: -60.0dB(静音) ~ +12.0dB(最大增益)
         默认值: 0.0dB (单位增益)
         """
+        print(f"[VolumeControl] 开始初始化音量控制... gtp_player={self.gtp_player is not None}")
         try:
             # 清除旧的滑块
             for slider in self._track_volume_sliders.values():
@@ -3633,7 +3632,21 @@ class DisplayWindow(QMainWindow):
                 self.volume_group_box.setVisible(False)
                 return
             
-            # 为每个音轨创建音量滑块
+            # 1. 创建Master总音量滑块(放在最左边，使用特殊样式)
+            master_slider = TrackVolumeSlider(track_name="Master", is_master=True)
+            master_slider.valueChanged.connect(self._on_master_volume_changed)
+            
+            self.volume_slider_layout.addWidget(master_slider)
+            self._master_volume_slider = master_slider
+            
+            # 添加分隔线(QFrame作为视觉分隔)
+            separator = QFrame()
+            separator.setFrameShape(QFrame.VLine)
+            separator.setStyleSheet(f"color: {ThemeManager.get('border', '#3A3A4A')};")
+            separator.setFixedHeight(130)  # 固定高度(匹配滑块)
+            self.volume_slider_layout.addWidget(separator)
+            
+            # 2. 为每个音轨创建音量滑块(跟在Master后面)
             for i, track in enumerate(song.tracks):
                 track_name = track.name if track.name else f"Track {i+1}"
                 
@@ -3645,26 +3658,13 @@ class DisplayWindow(QMainWindow):
                 self.volume_slider_layout.addWidget(slider)
                 self._track_volume_sliders[i] = slider
             
-            # 创建Master总音量滑块(放在最后，使用特殊样式)
-            master_slider = TrackVolumeSlider(track_name="Master", is_master=True)
-            master_slider.valueChanged.connect(self._on_master_volume_changed)
-            
-            # 添加分隔线(QFrame作为视觉分隔)
-            separator = QFrame()
-            separator.setFrameShape(QFrame.VLine)
-            separator.setStyleSheet(f"color: {ThemeManager.get('border', '#3A3A4A')};")
-            self.volume_slider_layout.addWidget(separator)
-            
-            self.volume_slider_layout.addWidget(master_slider)
-            self._master_volume_slider = master_slider
-            
             # 显示整个音量控制组
             self.volume_group_box.setVisible(True)
             self.volume_scroll.setVisible(True)
             
-            # 根据音轨数量调整滚动区域宽度
-            total_width = (num_tracks + 1) * (56 + 6) + 20  # 滑块宽 + 间距 + 分隔线
-            self.volume_container.setMinimumWidth(min(total_width, 600))  # 最大600px
+            # 根据音轨数量调整滚动区域宽度(使用新的WIDGET_WIDTH=36)
+            total_width = (num_tracks + 1) * (36 + 1) + 16  # 滑块宽 + 间距(超紧凑) + 分隔线
+            self.volume_container.setMinimumWidth(min(total_width, 400))  # 最大400px
             
             print(f"[VolumeControl] 已初始化 {num_tracks} 个音轨音量滑块 + Master总音量")
             
