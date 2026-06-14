@@ -15,8 +15,8 @@ Core Features / 核心功能:
      速度曲线编辑器 - 贝塞尔曲线可视化编辑，含预设模板(图片/PDF格式)
   4. Score text annotation system - double-click to add/drag to move/custom styles
      谱面文本标注系统 - 双击添加/拖动移动/样式自定义
-  5. Annotation import/export - auto-load .anno.json files, A4 PNG/PDF export
-     标注导入导出 - 自动加载同名.anno.json标注文件，A4尺寸PNG/PDF导出
+  5. Annotation import/export - auto-load .anno.json files, A4 PNG/PDF export, print to printer
+     标注导入导出 - 自动加载同名.anno.json标注文件，A4尺寸PNG/PDF导出，打印到打印机
   6. Global undo/redo - Ctrl+Z/Y for all annotation operations (shared stack)
      全局撤销重做 - Ctrl+Z/Y统一撤销所有标注操作(画布+管理器共享栈)
   7. Page navigation - page input box for PDF/multi-image mode
@@ -93,6 +93,7 @@ from PyQt5.QtWidgets import (
     QScrollArea, QGraphicsDropShadowEffect, QSizePolicy, QToolTip,
     QProgressBar, QComboBox, QTabWidget, QToolButton, QRadioButton
 )
+from PyQt5.QtPrintSupport import QPrinter, QPrintDialog  # 打印支持(用于打印曲谱到物理打印机)
 from PyQt5.QtGui import (
     QPixmap, QPainter, QPen, QColor, QFont, QFontMetrics, QIcon,
     QImage, QCursor, QPainterPath, QLinearGradient, QRadialGradient,
@@ -3026,6 +3027,12 @@ class DisplayWindow(QMainWindow):
         self.export_btn.clicked.connect(self._export_to_a4)
         tb.addWidget(self.export_btn)
 
+        # 打印按钮(直接打印到打印机，含标注) (SVG图标: 打印机)
+        self.print_btn=ModernButton(I18n.t("toolbar.print_btn"),'warning','printer')
+        self.print_btn.setToolTip(I18n.t("toolbar.print_tooltip"))
+        self.print_btn.clicked.connect(self._print_score)
+        tb.addWidget(self.print_btn)
+
         # 速度曲线按钮 (SVG图标: 趋势线图表)
         self.curve_btn=ModernButton(I18n.t("toolbar.curve_btn"),'primary','chart')
         self.curve_btn.clicked.connect(self._open_speed_curve_editor)
@@ -4445,6 +4452,183 @@ class DisplayWindow(QMainWindow):
         # 调用DisplayWidget的创建标注方法
         self.display_widget._create_annotation_at(x, y)
 
+    # ========== 打印曲谱(含标注，支持分轨/分页) ==========
+
+    def _print_score(self)->None:
+        """
+        打印谱面(含标注)到打印机
+
+        功能:
+          - 使用系统打印对话框选择打印机
+          - 分轨: GTP文件可选指定轨道打印，或"全部轨道"按顺序拼接
+          - 分页: 可选单页、页码范围、全部页面
+          - 标注: 完整渲染所有标注(颜色/字体/大小)
+          - 自动分页: 内容超过一页时自动分多页打印
+
+        原理:
+          1. 弹出自定义打印设置对话框(PrintDialog)让用户选择轨道/页码范围
+          2. 弹出系统QPrintDialog让用户选择打印机和打印参数
+          3. 收集需要打印的图片列表(GTP多轨时按需重新渲染各轨)
+          4. 使用QPainter将内容逐页绘制到QPrinter
+          5. 排序规则与导出功能完全一致(复用_collect_export_data)
+
+        调用方式: 工具栏"打印"按钮点击触发
+        """
+        if not self.images or all(img.isNull() for img in self.images):
+            QMessageBox.warning(self, I18n.t("messages.print_no_content"), I18n.t("messages.print_no_content_msg"))
+            return
+
+        # 弹出打印设置对话框(选择轨道和页码)
+        dlg = PrintDialog(
+            parent=self,
+            src_name=os.path.basename(self.file_path) if isinstance(self.file_path, str) else I18n.t("app.score_name"),
+            is_gtp=bool(self.gtp_player and self.gtp_player.is_loaded),
+            gtp_track_count=self.gtp_track_combo.count() if self.gtp_track_combo else 0,
+            current_track=self.gtp_player.current_track if self.gtp_player else 0,
+            total_pages=len([i for i in self.images if not i.isNull()])
+        )
+        if dlg.exec_() != QDialog.Accepted:
+            return
+
+        # 获取用户选择
+        track_mode = dlg.track_mode  # "current" | "all" | list[int]
+        page_mode = dlg.page_mode    # "all" | ("range", start, end)
+
+        # 弹出系统打印对话框
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setPageSize(QPrinter.A4)
+        printer.setPageMargins(10, 10, 10, 10, QPrinter.Millimeter)
+        printer.setFullPage(True)
+
+        print_dlg = QPrintDialog(printer, self)
+        print_dlg.setWindowTitle(I18n.t("print_dialog.window_title"))
+        if print_dlg.exec_() != QDialog.Accepted:
+            return
+
+        try:
+            # === Step 1: 收集要打印的数据(复用导出逻辑) ===
+            print_items = self._collect_export_data(track_mode, page_mode)
+            # print_items: List[(images_list, annotations_list, track_label), ...]
+
+            if not print_items or not any(item[0] for item in print_items):
+                QMessageBox.warning(self, I18n.t("messages.print_no_content"), I18n.t("messages.print_no_data"))
+                return
+
+            # === Step 2: 执行打印 ===
+            total_pages = 0
+            for item_idx, (imgs, anns, label) in enumerate(print_items):
+                if not imgs:
+                    continue
+                n = self._render_to_printer(printer, imgs, anns)
+                total_pages += n
+
+            QMessageBox.information(
+                self, I18n.t("messages.print_success"),
+                I18n.t("messages.print_success_msg", count=total_pages)
+            )
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, I18n.t("messages.print_fail"), I18n.t("messages.print_fail_msg", error=str(e)))
+
+    def _render_to_printer(self, printer:QPrinter, images:list, annotations:list)->int:
+        """
+        渲染谱面到打印机(v1: 复用A4导出的缩放+预渲染逻辑)
+
+        原理:
+          1. 按A4宽度等比缩放所有图片(与PNG/PDF导出一致)
+          2. 计算总高度和分页数
+          3. 逐页使用预渲染方案绘制到printer(100%杜绝溢出)
+          4. 在每页上绘制该页范围内的标注
+
+        参数:
+            printer:    QPrinter实例(已配置好纸张大小和边距)
+            images:     要打印的QPixmap列表
+            annotations: 标注列表(Annotation对象)
+
+        返回: 打印的页数
+        """
+        # 获取打印机实际可打印区域
+        printer_rect = printer.pageRect(QPrinter.DevicePixel)
+        draw_w = printer_rect.width()
+        draw_area_h = printer_rect.height() - 35  # 预留35px给页码
+
+        # 按A4宽度等比缩放所有图片(与导出一致)
+        scaled_info = []; total_h = 0
+        for img in images:
+            if img.isNull(): continue
+            ratio = draw_w / img.width() if img.width() > 0 else 1
+            sh = int(img.height() * ratio)
+            scaled_info.append((img.scaled(draw_w, sh, Qt.KeepAspectRatio, Qt.SmoothTransformation), sh))
+            total_h += sh
+        if not scaled_info:
+            raise ValueError("没有可打印的内容")
+
+        # 计算分页数
+        n_pages = max(1, (total_h + draw_area_h - 1) // draw_area_h)
+
+        # 检测并跳过末尾空白/近空白页(与导出一致)
+        if n_pages > 1:
+            last_page_start = (n_pages - 1) * draw_area_h
+            last_page_content = total_h - last_page_start
+            if last_page_content < draw_area_h * 0.05:
+                n_pages -= 1
+
+        # 开始打印(每页一个newPage调用)
+        painter = QPainter(printer)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+
+        printed = 0
+        for page_idx in range(n_pages):
+            if page_idx > 0:
+                printer.newPage()  # 分页(第1页不需要)
+
+            ps = page_idx * draw_area_h; pe = ps + draw_area_h
+
+            # === 预渲染到独立画布(与导出一致: 100%杜绝溢出) ===
+            page_buffer = QImage(draw_w, draw_area_h, QImage.Format_ARGB32_Premultiplied)
+            page_buffer.fill(QColor(255,255,255,255).rgba())  # 白色背景
+
+            pb = QPainter(page_buffer)
+            pb.setRenderHint(QPainter.Antialiasing); pb.setRenderHint(QPainter.SmoothPixmapTransform)
+
+            ry = 0
+            for scaled_img, sh in scaled_info:
+                if ry + sh > ps and ry < pe:
+                    src_top = max(0, ps - ry)
+                    src_bottom = min(sh, pe - ry)
+                    src_h = max(0, src_bottom - src_top)
+                    if src_h > 0:
+                        dst_y = (ry - ps) + src_top
+                        pb.drawPixmap(
+                            QRect(0, dst_y, draw_w, src_h),
+                            scaled_img,
+                            QRect(0, src_top, draw_w, src_h)
+                        )
+                ry += sh
+
+            # 绘制标注(在page_buffer内，复用导出的标注绘制逻辑)
+            orig_anns = self.annotations
+            self.annotations = annotations
+            self._draw_annotations_on_canvas(pb, 0, 0, draw_w, float(total_h), float(ps), float(pe),
+                                               scale_ratio=draw_w / max(self.display_widget.width()-20, 1))
+            self.annotations = orig_anns
+            pb.end()
+
+            # 将预渲染内容绘制到打印机
+            painter.drawImage(0, 0, page_buffer)
+
+            # 页码(底部居中)
+            painter.setPen(QColor("#999999"))
+            painter.setFont(QFont("Arial", 9))
+            painter.drawText(QRect(0, printer_rect.height() - 35, draw_w, 35),
+                           Qt.AlignCenter, f"- {page_idx+1}/{n_pages} -")
+            printed += 1
+
+        painter.end()
+        return printed
+
     # ========== A4导出(PNG/PDF，含标注，支持分轨/分页) ==========
 
     def _export_to_a4(self)->None:
@@ -5043,6 +5227,94 @@ class ExportDialog(QDialog):
                                            f"{I18n.t('export_dialog.file_filter_pdf') if self.format_choice=='pdf' else I18n.t('export_dialog.file_filter_png')} (*{ext})")
         if not fp: return
         self.save_path = fp; super().accept()
+
+
+# ========== 打印设置对话框 ==========
+
+class PrintDialog(QDialog):
+    """
+    打印设置对话框 - 选择轨道/页码范围
+    功能: GTP可选轨道; 可选页码范围; 确认后弹出系统打印对话框
+
+    设计说明: 复用ExportDialog的UI布局和逻辑，仅移除格式选择部分
+    """
+
+    def __init__(self, parent, src_name:str, is_gtp:bool,
+                 gtp_track_count:int, current_track:int, total_pages:int):
+        super().__init__(parent)
+        self.src_name = src_name; self.is_gtp = is_gtp
+        self.gtp_track_count = gtp_track_count; self.current_track = current_track
+        self.total_pages = total_pages
+        self.track_mode = "current"
+        self.page_mode = "all"
+        self.setWindowTitle(I18n.t("print_dialog.window_title")); self.setMinimumWidth(420)
+        self._setup_ui()
+
+    def _setup_ui(self)->None:
+        lo = QVBoxLayout(self); lo.setSpacing(12)
+
+        # 轨道(GTP多轨时显示) - 与导出对话框一致
+        if self.is_gtp and self.gtp_track_count > 1:
+            tg = QGroupBox(I18n.t("print_dialog.track_group", count=self.gtp_track_count)); tl = QVBoxLayout(tg)
+            self.tk_cur = QRadioButton(I18n.t("print_dialog.track_current")); self.tk_all = QRadioButton(I18n.t("print_dialog.track_all"))
+            self.tk_sel = QRadioButton(I18n.t("print_dialog.track_select"))
+            self.tk_cur.setChecked(True); self.tk_sel.toggled.connect(lambda c: self._ck.setVisible(c))
+            tl.addWidget(self.tk_cur); tl.addWidget(self.tk_all)
+            sr = QHBoxLayout(); sr.addWidget(self.tk_sel)
+            self._ck = QWidget(); cl = QHBoxLayout(self._ck); cl.setContentsMargins(0,0,0,0)
+            self.tks = []
+            for i in range(self.gtp_track_count):
+                cb = QCheckBox(str(i+1)); cb.setChecked(i == self.current_track); self.tks.append(cb); cl.addWidget(cb)
+            self._ck.setVisible(False); sr.addWidget(self._ck); sr.addStretch(); tl.addLayout(sr); lo.addWidget(tg)
+        else:
+            self.tk_all = None; self.tk_sel = None; self.tks = []; self.tk_cur = None
+
+        # 页码范围 - 与导出对话框一致
+        pg = QGroupBox(I18n.t("print_dialog.page_group", total=self.total_pages)); pl = QVBoxLayout(pg)
+        self.pg_all = QRadioButton(I18n.t("print_dialog.page_all")); self.pg_rng = QRadioButton(I18n.t("print_dialog.page_range"))
+        self.pg_all.setChecked(True); self.pg_rng.toggled.connect(lambda c: self._pw.setVisible(c))
+        pl.addWidget(self.pg_all)
+        rl = QHBoxLayout(); rl.addWidget(self.pg_rng)
+        self._ps = QSpinBox(); self._ps.setRange(1,max(1,self.total_pages)); self._ps.setValue(1)
+        self._pe = QSpinBox(); self._pe.setRange(1,max(1,self.total_pages)); self._pe.setValue(self.total_pages)
+        rl.addWidget(QLabel(I18n.t("print_dialog.page_from")))
+        rl.addWidget(self._ps)
+        rl.addWidget(QLabel(I18n.t("print_dialog.page_to")))
+        rl.addWidget(self._pe)
+        rl.addWidget(QLabel(I18n.t("print_dialog.page_unit")))
+        rl.addStretch()
+        self._pw = QWidget(); rw = QHBoxLayout(self._pw); rw.setContentsMargins(0,0,0,0); rw.addLayout(rl)
+        self._pw.setVisible(False); pl.addWidget(self._pw); lo.addWidget(pg)
+
+        # 按钮
+        bb = QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel)
+        bb.accepted.connect(self.accept); bb.rejected.connect(self.reject); lo.addWidget(bb)
+
+    def accept(self)->None:
+        """确认时收集用户选择的轨道模式和页码模式"""
+        # 收集轨道选择
+        if self.is_gtp and self.gtp_track_count > 1:
+            if self.tk_all and self.tk_all.isChecked():
+                self.track_mode = "all"
+            elif self.tk_sel and self.tk_sel.isChecked():
+                self.track_mode = [i for i,c in enumerate(self.tks) if c.isChecked()]
+                if not self.track_mode:
+                    QMessageBox.warning(self, "提示", I18n.t("messages.select_track_hint"))
+                    return
+            else:
+                self.track_mode = "current"
+        else:
+            self.track_mode = "current"
+
+        # 收集页码范围
+        if hasattr(self,'pg_rng') and self.pg_rng.isChecked():
+            s,e = self._ps.value(), self._pe.value()
+            if s > e: s,e = e,s
+            self.page_mode = ("range", s, e)
+        else:
+            self.page_mode = "all"
+
+        super().accept()
 
 
 # ============================================================
