@@ -1,6 +1,6 @@
-# TAB Score Viewer v2.0.1 Release Note
+# TAB Score Viewer v2.0.4 Release Note
 
-**Version**: v2.0.1
+**Version**: v2.0.4
 **Release Date**: 2026-06-14
 **Author**: Zhu Wenqian
 
@@ -8,7 +8,7 @@
 
 ## Overview
 
-TAB Score Viewer v2.0.1 is a **major version iteration following v1.0.0**, with **9 intermediate versions** of continuous development. Building upon all core features from v1.0.0, this release adds **complete GTP guitar tablature rendering engine, audio playback, dark/light theme system, internationalization support, application icon & EXE packaging**, and fixes **30+ bugs**.
+TAB Score Viewer v2.0.4 is a **major version iteration following v1.0.0**, with **9 intermediate versions** of continuous development. Building upon all core features from v1.0.0, this release adds **complete GTP guitar tablature rendering engine, audio playback, dark/light theme system, internationalization support, application icon & EXE packaging**, and fixes **30+ bugs**.
 
 This update (**2026-06-14**) focuses on **UI professionalization and code quality improvement**:
 - **SVG Icon System**: Replace emoji icons with Lucide-style SVG icons for professional UI standards
@@ -388,7 +388,7 @@ Principle: Technical explanation / 原理: 技术说明
 |               SettingsWindow (Main Window)         |
 |  +----------+ +------------+ +------------------+  |
 |  | File List| | Toolbar    | | Bottom Progress   |  |
-|  | (SVG Icons│ | (SVG Icons) | | Bar w/ Page Input |  |
+|  | (SVG Icons)│ | (SVG Icons) | | Bar w/ Page Input |  |
 |  +----------+ +------------+ | Bar w/ Page Input |  |
 |                             +------------------+  |
 |  +-----------------------------------------------+ |
@@ -454,10 +454,10 @@ Principle: Technical explanation / 原理: 技术说明
 
 | Metric | Value |
 |--------|-------|
-| **Total Versions** | 10 (v1.0.0 → v2.0.1) |
+| **Total Versions** | 11 (v1.0.0 → v2.0.4) |
 | **Development Duration** | 8 days (2026-06-06 → 2026-06-14) |
-| **Lines of Code** | ~5300+ (main program) |
-| **Bug Fixes** | 30+ issues resolved |
+| **Lines of Code** | ~5400+ (main program) |
+| **Bug Fixes** | 35+ issues resolved |
 | **Design Patterns Used** | 7 (MVC, Observer, Singleton, Factory, Command, Facade, Strategy) |
 | **Supported Languages** | 2 (Chinese Simplified, English) |
 | **SVG Icons** | 13 (Lucide-style) |
@@ -465,7 +465,102 @@ Principle: Technical explanation / 原理: 技术说明
 
 ---
 
-**Document Version**: v2.0.1 Release Note
+## v2.0.4 (2026-06-14) - GTP A/B Loop Architecture Refactoring ⭐ Major Fix
+
+### Problem Description
+
+GTP mode A/B region loop had **3 critical issues**:
+
+| # | Symptom | Root Cause |
+|---|---------|------------|
+| 1 | Short loops (<5% of song) stuck/frozen at start position | UI-layer cooldown mechanism caused race condition with audio thread |
+| 2 | Loop jumps past B point instead of looping back to A | `current_position=0` → percentage always 0% → measure index always [0-0] |
+| 3 | Setting A/B points in non-region mode then switching yields [0-0] | A/B buttons used scroll position instead of audio time |
+
+### Solution: Library-Layer Measure-Based Loop
+
+**Architecture Change**: Moved all loop logic from UI layer down to audio engine library layer.
+
+```
+Old Architecture (v2.0.3):                          New Architecture (v2.0.4):
+                                           
+UI _tick():                                         UI _tick():
+  Read audio_time_ms                                  Read audio_time_ms
+  ↓                                                  ↓
+  Check if in cooldown? ─Yes→ Simulated clock        Calculate position (clean!)
+  ↓ No                                              ↓
+  Check if past B? ─Yes→ seek+cooldown counter       Display (Done. No loop code)
+  ↓ No
+  Calculate position
+  
+Library SynthEngine:                                Library SynthEngine:
+  Only plays, no loop control                        _play_loop() for→while loop:
+                                                        Iterate events → End? → Check _loop_enabled
+                                                        → Yes: Mute→Reset time→Re-iterate
+                                                        → All within audio thread, no race condition
+```
+
+### Key Changes
+
+#### 1. Library: `synth_engine.py` — Built-in Event-Level Loop
+
+| Feature | Detail |
+|---------|--------|
+| **Loop trigger** | When event time >= `loop_end_ms`, immediately restart (not wait for song end) |
+| **Event skipping** | On restart, auto-skips events before `loop_start_ms` via time comparison |
+| **Thread safety** | All operations within same audio thread (no lock contention) |
+| **Seek pre-fill** | `seek()` pre-fills `_start_time` under lock to eliminate race condition on first read |
+
+#### 2. Library: `player.py` — Measure-Based API
+
+| Method | Purpose |
+|--------|---------|
+| `set_loop_region_by_position(start_pct, end_pct)` | Convert %→measure index→ms boundary→set engine loop |
+| `clear_loop_region()` | Disable loop, reset engine state |
+| `_find_measure_at_time(time_ms)` | Binary search timeline for measure index |
+| `_get_measure_start_end(meas_idx)` | Get measure's start/end time in ms |
+
+**Measure alignment rules**: A point → first beat of measure; B point → last beat of measure
+
+#### 3. Main Program: `TAB Score Viewer.py` — Simplified UI (~90 lines net reduction)
+
+| Change | Before | After |
+|--------|--------|-------|
+| `_tick()` GTP path | ~110 lines with cooldown/simulated clock/safety checks | ~25 lines: read time → calc position → display |
+| `_set_ab_point()` | Used `current_position` (scroll pos, =0 when not scrolled) | Uses `audio_time_ms / total_duration_ms` |
+| `_on_loop_mode_changed()` | Set loop config only | Sets loop + seeks to A immediately |
+| `_on_region_selected()` | Updated UI only | Updates UI + syncs to library if in region mode |
+| Variables removed | `_loop_seek_cooldown`, `_loop_seek_target_ms`, `_loop_seek_sim_time`, etc. | All deleted |
+
+### Bug Fixes (6 issues)
+
+| # | File | Issue | Fix |
+|---|------|-------|-----|
+| 1 | `synth_engine.py` | Race condition: `seek()` returns but `_start_time` not yet set | Pre-fill `_start_time` under lock in `seek()` |
+| 2 | `synth_engine.py` | Loop only triggered after ALL events played, not at B point | Added mid-playback check: `if target_time_ms >= loop_end_ms: restart` |
+| 3 | `player.py` | Sentinel point had hardcoded `meas_idx=0` | Sentinel inherits last real entry's indices |
+| 4 | `TAB Score Viewer.py` | `_set_ab_point()` used scroll position (=0) | Changed to use `audio_time_ms / total_duration_ms` |
+| 5 | `TAB Score Viewer.py` | Switching to region didn't seek to A | Added immediate `seek(target_ms)` call |
+| 6 | `TAB Score Viewer.py` | Progress bar A/B didn't sync to library | Added library sync in region mode |
+
+### Test Cases (10 Scenarios)
+
+| Case | Scenario | Expected Result |
+|------|----------|-----------------|
+| 1 | Normal loop (measures 10-20, >5%) | Smooth playback, seamless loop back |
+| 2 | Short loop (measures 0-2, <1%) | Loops correctly without freezing |
+| 3 | Ultra-short loop (single measure) | Repeats that measure, no freeze |
+| 4 | Set A/B while playing, switch to region | Immediately jumps to A and loops |
+| 5 | Set A/B while paused, switch to region | Seeks to A, starts from A on play |
+| 6 | Ctrl/Shift click progress bar for A/B | Correct measure indices set |
+| 7 | Click Set A/Set B buttons during playback | Uses audio time for accurate placement |
+| 8 | Switch back to "none" mode | Loop stops, full playback resumes |
+| 9 | A > B (set B before A) | Auto-swaps positions |
+| 10 | Loop during linear mode (non-GTP) | Unaffected, original behavior |
+
+---
+
+**Document Version**: v2.0.4 Release Note
 **Last Updated**: 2026-06-14
 **Author**: Zhu Wenqian (14-year-old developer from China)
 **AI Assistance**: GLM-5V-Turbo (code assistance, human-led architecture decisions)
