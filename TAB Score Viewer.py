@@ -5050,7 +5050,7 @@ class DisplayWindow(QMainWindow):
         # 创建打印预览对话框
         preview_dlg = QPrintPreviewDialog(printer, self)
         preview_dlg.setWindowTitle(I18n.t("print_dialog.preview_title"))
-        preview_dlg.setMinimumSize(800, 600)  # 最小尺寸确保预览效果良好
+        preview_dlg.setMinimumSize(820, 600)  # 最小尺寸确保预览效果良好(宽度+50px以完整显示打印图标)
 
         # 连接渲染信号: 当预览需要绘制页面时触发
         def on_paint_requested(printer_for_preview:QPrinter)->None:
