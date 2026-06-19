@@ -194,6 +194,7 @@ Description: Guitar Pro file viewer and player with audio playback
   - Export to PDF, PNG, JPG formats
   - A/B loop practice mode
   - Multi-language support (Chinese/English)
+# 控制文件末尾必须有空行(Debian规范要求)
 CONTROL_EOF
 
 chmod 644 "${PACKAGE_DIR}/DEBIAN/control"
@@ -247,11 +248,11 @@ echo "[*] 正在构建 ${DEB_FILE}..."
 
 # 使用 fakeroot 如果可用(避免需要 root)
 if command -v fakeroot &> /dev/null; then
-    fakeroot dpkg-deb --build "${PACKAGE_DIR}" "${DEB_FILE}"
+    fakeroot dpkg-deb --build --root-owner-group "${PACKAGE_DIR}" "${DEB_FILE}"
 else
     # 需要 root 权限来设置正确的文件所有权
     sudo chown -R root:root "${PACKAGE_DIR}"
-    dpkg-deb --build "${PACKAGE_DIR}" "${DEB_FILE}"
+    dpkg-deb --build --root-owner-group "${PACKAGE_DIR}" "${DEB_FILE}"
 fi
 
 # ===== 9. 清理临时文件 =====
