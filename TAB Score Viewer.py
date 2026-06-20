@@ -3081,6 +3081,15 @@ class DisplayWindow(QMainWindow):
         # === 点击跳转播放目标(防止_tick()音频时间覆盖点击位置) ===
         # 当用户点击谱面跳转播放时设置，_tick()在音频时间未追上之前使用此值
         self._click_jump_target:float = -1.0  # -1表示无待处理跳转
+
+        # === [v0.4.0] 反复跳回视觉偏移(Repeat Jump Visual Offset) ===
+        # 当反复记号导致播放跳回之前的谱面位置时，给滚动位置添加额外偏移，
+        # 让当前播放行显示在视口偏下位置，上方留出更多空间显示上下文。
+        # 偏移量是固定值，随着BPM驱动播放前进，time_based_pos自然增大，
+        # 偏移效果自动消失（无需衰减，不会抽搐）。
+        self._repeat_jump_offset: float = 0.0    # 当前视觉偏移量(px)
+        self._repeat_jump_base_pos: float = 0.0  # 跳回时的time_based_pos(用于判断偏移是否该消失)
+        self._repeat_jump_threshold: float = 50.0 # 跳回检测阈值(px): 位置回退>此值视为反复跳回
         
         # === 总音频时长(ms)(用于进度条百分比计算) ===
         self._total_audio_duration_ms:float=0.0
@@ -3867,6 +3876,8 @@ class DisplayWindow(QMainWindow):
         """
         self.timer.stop()
         self._click_jump_target = -1.0  # 清除点击跳转目标
+        self._repeat_jump_offset = 0.0  # [v0.4.0] 清除反复跳回视觉偏移
+        self._repeat_jump_base_pos = 0.0
         # Phase 3: 同时停止GTP播放器
         if self.gtp_player and self.gtp_player.is_audio_ready:
             if reset_position:
@@ -4197,6 +4208,19 @@ class DisplayWindow(QMainWindow):
             # === 时间驱动位置计算（干净版：无冷却、无模拟时钟） ===
             time_based_pos = self._time_to_scroll_pos(effective_time)
 
+            # === [v0.4.0] 反复跳回检测: 当位置突然回退时，添加视觉偏移 ===
+            # 原理: 反复记号导致 time_to_scroll_pos 返回更小的 scroll_y，
+            #       检测到回退后给 current_position 额外减去固定偏移量，
+            #       让当前播放行显示在视口偏下位置(上方留出上下文空间)。
+            #       偏移量固定不变，随着BPM驱动播放前进，time_based_pos自然增大，
+            #       当前进距离超过偏移量时偏移自动消失（无需衰减，不会抽搐）。
+            if (self._repeat_jump_offset < 1.0
+                    and (self.current_position - time_based_pos) > self._repeat_jump_threshold):
+                # 检测到跳回: 设置固定偏移量(视口高度的1/5)
+                view_h = self.display_widget.height()
+                self._repeat_jump_offset = view_h / 5.0
+                self._repeat_jump_base_pos = time_based_pos
+
             if self._click_jump_target >= 0:
                 if time_based_pos < self._click_jump_target:
                     self.current_position = self._click_jump_target
@@ -4205,6 +4229,16 @@ class DisplayWindow(QMainWindow):
                     self._click_jump_target = -1.0
             else:
                 self.current_position = time_based_pos
+
+            # === [v0.4.0] 应用反复跳回视觉偏移 ===
+            # 固定偏移: 减去offset = 谱面往上滚 = 当前行显示在偏下位置
+            # 自然消失: 当BPM驱动time_based_pos前进超过offset距离后，偏移不再有意义
+            if self._repeat_jump_offset > 1.0:
+                # 如果播放已经前进了足够远(超过偏移量)，清除偏移
+                if (time_based_pos - self._repeat_jump_base_pos) > self._repeat_jump_offset:
+                    self._repeat_jump_offset = 0.0
+                else:
+                    self.current_position = max(0.0, self.current_position - self._repeat_jump_offset)
 
             self.play_time = effective_time / 1000.0
 
