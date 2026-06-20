@@ -188,29 +188,95 @@ pages = render_gtp("my_song.gp5", track_index=0)
 
 See [ApolloTab on GitHub](https://github.com/Zhuwenqian/ApolloTab) for details.
 
-## EXE Packaging
+## Packaging & Distribution
 
-Uses PyInstaller **onedir mode** (directory, not single-file):
+Supports **Windows** (EXE) and **Linux** (DEB / ZIP) packaging.
 
-- Output folder: `dist/TAB Score Viewer/` containing exe and all dependencies
-- Faster startup than onefile (single-file) mode, no extraction needed
-- Icon file `icon.ico` serves as both exe file icon and runtime window/taskbar icon
-- Translation files (locales/) and audio DLLs are included in output directory
-- Data files (icons/, soundfont/) are placed in `_internal/` subdirectory
+### Windows (EXE)
 
-### Packaging Steps
+> No Python environment required.
 
 ```bash
-# 1. Ensure virtual environment is activated and all deps installed (including ApolloTab)
-# 2. Install PyInstaller
+# Build from source (requires dependencies installed first, see Option 1 steps 1-4)
 pip install pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-# 3. Build (using pre-configured spec file)
 pyinstaller "TAB Score Viewer.spec"
-# Double-click to run
+
+# Double-click TAB Score Viewer.exe to run
 ```
 
-### Spec Config (`TAB Score Viewer.spec`)
+### Linux (DEB Package - Recommended)
+
+> Automatic dependency resolution, system-wide installation with `tabsv` command.
+
+```bash
+# 1. Install build dependencies (if not already installed)
+sudo apt-get install dpkg-dev fakeroot   # Debian/Ubuntu
+# or: sudo dnf install rpm-build fakeroot  # Fedora/RHEL
+
+# 2. Run the build script (handles PyInstaller + DEB packaging)
+chmod +x build_deb.sh && ./build_deb.sh
+
+# 3. Install the generated .deb package
+sudo dpkg -i tab-score-viewer_2.0.7_*.deb
+sudo apt-get install -f  # Fix any missing dependencies
+
+# 4. Run (global command, no path needed)
+tabsv
+```
+
+**DEB Package Contents:**
+
+| Path | Description |
+|------|-------------|
+| `/opt/tab-score-viewer/` | Application executable + `_internal/` libs |
+| `/usr/bin/tabsv` | Launcher script (auto-added to PATH) |
+| `/usr/share/applications/tab-score-viewer.desktop` | Desktop shortcut (appears in app menu) |
+| `/usr/share/icons/hicolor/256x256/apps/tab-score-viewer.png` | Application icon |
+
+**System Dependencies (auto-installed by apt):**
+- `libfluidsynth3` - FluidSynth audio synthesis library
+- `libsndfile1` - Audio file format support
+- `libpulse0` / `libasound2` - Audio output (PulseAudio / ALSA)
+- `libqt5widgets5`, `libqt5gui5`, `libqt5core5a` - Qt5 GUI framework
+
+### Linux (ZIP Archive)
+
+> Portable, but requires manual dependency installation.
+
+```bash
+# 1. Build PyInstaller package first
+pyinstaller "TAB Score Viewer_linux.spec"
+
+# 2. Create ZIP archive
+cd dist
+zip -r "../tab-score-viewer-linux.zip" "TAB Score Viewer"
+cd ..
+
+# 3. Extract and run
+unzip tab-score-viewer-linux.zip
+cd "TAB Score Viewer"
+./"TAB Score Viewer"   # Note: quote needed due to space in filename
+```
+
+**Required Dependencies (install manually):**
+
+```bash
+# Ubuntu/Debian:
+sudo apt-get install libfluidsynth3 libsndfile1 libpulse0 libasound2 \
+    libqt5widgets5 libqt5gui5 libqt5core5a libc6
+
+# Fedora/RHEL:
+sudo dnf install fluidsynth-libs libsndfile pulseaudio-libs alsa-lib \
+    qt5-qtbase-gui qt5-qtbase qt5-qtbase
+
+# Arch Linux:
+sudo pacman -S fluidsynth libsndfile pulseaudio alsa-lib qt5-base
+
+# Optional: SoundFont for GTP audio playback
+sudo apt-get install fluid-soundfont-gm    # Ubuntu/Debian
+```
+
+### Spec Config (`TAB Score Viewer.spec` / `TAB Score Viewer_linux.spec`)
 
 | Setting     | Value                          | Description                            |
 | ----------- | ------------------------------ | --------------------------------------- |
@@ -395,7 +461,9 @@ pyinstaller "TAB Score Viewer.spec"
 ```
 TAB Score Viewer/
 ├── TAB Score Viewer.py      # 主程序（含I18n国际化类、图标加载器）
-├── TAB Score Viewer.spec    # PyInstaller 打包配置（非单文件模式）
+├── TAB Score Viewer.spec    # PyInstaller 打包配置 - Windows 版
+├── TAB Score Viewer_linux.spec  # PyInstaller 打包配置 - Linux 版
+├── build_deb.sh             # DEB 包自动化构建脚本（含启动脚本+桌面快捷方式）
 ├── icons/                   # SVG 图标目录（Lucide 风格工具栏图标）
 │   ├── annotate.svg         # 铅笔/编辑图标
 │   ├── export.svg           # 下载箭头图标
@@ -471,29 +539,94 @@ pages = render_gtp("my_song.gp5", track_index=0)
 
 详见 [ApolloTab GitHub](https://github.com/Zhuwenqian/ApolloTab)。
 
-## EXE 打包说明
+## 打包发布说明
 
-### 打包原理
+支持 **Windows** (EXE) 和 **Linux** (DEB / ZIP) 两种平台的打包发布。
 
-使用 PyInstaller 的 **onedir（目录）模式** 将 Python 应用打包为 Windows 可执行程序：
+### Windows（EXE 安装包）
 
-- 输出一个文件夹 `dist/TAB Score Viewer/`，内含 exe 和所有依赖
-- 相比 onefile（单文件）模式，启动更快，无需解压
-- 图标文件 `icon.ico` 同时作为 exe 文件图标和运行时窗口/任务栏图标
-- 翻译文件(locales/)和音频DLL自动包含在输出目录中
-- 数据文件(icons/, soundfont/)位于 `_internal/` 子目录
-
-### 打包步骤
+> 无需 Python 环境，直接运行。
 
 ```bash
-# 1. 确保已激活虚拟环境并安装所有依赖（含ApolloTab）
-# 2. 安装 PyInstaller
+# 从源码打包（需要先安装依赖，见方式一第1-4步）
 pip install pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-# 3. 执行打包（使用预配置的 spec 文件）
 pyinstaller "TAB Score Viewer.spec"
-#双击运行
+
+# 双击运行 TAB Score Viewer.exe
 ```
+
+### Linux（DEB 安装包 - 推荐）
+
+> 自动解决依赖关系，系统级安装，全局可用 `tabsv` 命令启动。
+
+```bash
+# 1. 安装构建工具（如果尚未安装）
+sudo apt-get install dpkg-dev fakeroot   # Debian/Ubuntu
+# 或: sudo dnf install rpm-build fakeroot  # Fedora/RHEL
+
+# 2. 执行构建脚本（自动完成 PyInstaller 打包 + DEB 打包）
+chmod +x build_deb.sh && ./build_deb.sh
+
+# 3. 安装生成的 .deb 包
+sudo dpkg -i tab-score-viewer_2.0.7_*.deb
+sudo apt-get install -f  # 自动修复缺失的依赖
+
+# 4. 运行（全局命令，无需输入完整路径）
+tabsv
+```
+
+**DEB 包安装后的目录结构：**
+
+| 路径 | 说明 |
+|------|------|
+| `/opt/tab-score-viewer/` | 应用程序可执行文件 + `_internal/` 依赖库 |
+| `/usr/bin/tabsv` | 启动脚本（自动添加到 PATH，可直接输入 `tabsv` 运行） |
+| `/usr/share/applications/tab-score-viewer.desktop` | 桌面快捷方式（出现在应用菜单中） |
+| `/usr/share/icons/hicolor/256x256/apps/tab-score-viewer.png` | 应用图标 |
+
+**系统依赖（apt 会自动安装）：**
+- `libfluidsynth3` - FluidSynth 音频合成库
+- `libsndfile1` - 音频文件格式支持
+- `libpulse0` / `libasound2` - 音频输出（PulseAudio / ALSA）
+- `libqt5widgets5`, `libqt5gui5`, `libqt5core5a` - Qt5 图形界面框架
+
+### Linux（ZIP 压缩包 - 便携版）
+
+> 免安装，解压即用，但需要手动安装依赖库。
+
+```bash
+# 1. 先执行 PyInstaller 打包
+pyinstaller "TAB Score Viewer_linux.spec"
+
+# 2. 创建 ZIP 压缩包
+cd dist
+zip -r "../tab-score-viewer-linux.zip" "TAB Score Viewer"
+cd ..
+
+# 3. 解压并运行
+unzip tab-score-viewer-linux.zip
+cd "TAB Score Viewer"
+./"TAB Score Viewer"   # 注意：文件名含空格，需要用引号包裹
+```
+
+**ZIP 方式需要手动安装的依赖：**
+
+```bash
+# Ubuntu/Debian:
+sudo apt-get install libfluidsynth3 libsndfile1 libpulse0 libasound2 \
+    libqt5widgets5 libqt5gui5 libqt5core5a libc6
+
+# Fedora/RHEL:
+sudo dnf install fluidsynth-libs libsndfile pulseaudio-libs alsa-lib \
+    qt5-qtbase-gui qt5-qtbase qt5-qtbase
+
+# Arch Linux:
+sudo pacman -S fluidsynth libsndfile pulseaudio alsa-lib qt5-base
+
+# 可选：GTP 音频播放需要的 SoundFont 音色库
+sudo apt-get install fluid-soundfont-gm    # Ubuntu/Debian
+```
+
 
 ### spec 配置说明 (`TAB Score Viewer.spec`)
 
