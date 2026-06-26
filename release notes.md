@@ -536,7 +536,7 @@ Library SynthEngine:                                Library SynthEngine:
 ## Planned for Future Versions
 
 - [x] Recently opened files list
-- [ ] Fullscreen mode
+- [x] Fullscreen mode
 - [ ] More playing technique symbol extensions
 - [ ] Plugin system
 

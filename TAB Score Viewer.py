@@ -45,8 +45,8 @@ Core Features / 核心功能:
      全屏模式 - F11切换/工具栏按钮/ESC智能行为(全屏时退出全屏而非关闭)
 
 Created: 2026-06-06 / 创建日期: 2026-06-06
-Last Modified: 2026-06-20 (v2.1.0 - Fullscreen Mode)
-最后修改: 2026-06-20 (v2.1.0 - 全屏模式)
+Last Modified: 2026-06-26 (v2.1.1 - Fix open file location on macOS/Linux)
+最后修改: 2026-06-26 (v2.1.1 - 修复 macOS/Linux 打开文件位置功能)
 
 Dependencies / 依赖库:
   - PyQt5 >= 5.15     # GUI framework (windows/widgets/signals/painting/PDF export)
@@ -7048,12 +7048,14 @@ class SettingsWindow(QMainWindow):
         
         原理: 调用系统命令定位到文件
           Windows: explorer /select,"路径" (需确保路径为绝对路径)
-          Linux:   xdg-open 或 nautilus --select "路径"
+          macOS:   open -R "路径"
+          Linux:   xdg-open 目录 或 nautilus --select "路径"
         
         修复: 
           - 确保传入绝对路径(相对路径会导致explorer打开默认文档文件夹)
           - 使用shell=True避免PowerShell参数解析问题
           - 路径不存在时给出明确提示
+          - 添加macOS支持 (open -R)
         
         参数:
             fpath: 要定位的文件或文件夹的路径(绝对或相对)
@@ -7067,11 +7069,16 @@ class SettingsWindow(QMainWindow):
                 QMessageBox.warning(self,I18n.t("settings_window.locate_fail_title"),I18n.t("settings_window.locate_fail_msg", path=abs_path))
                 return
             
-            if platform.system() == 'Windows':
+            sys_name = platform.system()
+            if sys_name == 'Windows':
                 # Windows: 使用shell=True确保explorer正确解析/select参数
                 # 注意: /select和路径之间不能有空格，否则explorer会忽略select参数
                 subprocess.run(f'explorer /select,"{abs_path}"', shell=True, check=False)
-            elif platform.system() == 'Linux':
+            elif sys_name == 'Darwin':
+                # macOS: 使用 open -R 在 Finder 中定位并选中文件
+                # open -R 是 macOS 原生命令，会在 Finder 中高亮选中文件
+                subprocess.run(['open', '-R', abs_path], check=False, timeout=10)
+            elif sys_name == 'Linux':
                 # Linux: 尝试多种文件管理器
                 for cmd in [
                     ['xdg-open', os.path.dirname(abs_path)],
