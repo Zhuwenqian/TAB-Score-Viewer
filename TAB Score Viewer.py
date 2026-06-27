@@ -41,10 +41,14 @@ Core Features / 核心功能:
      国际化支持(i18n) - 中文/英文双语切换，JSON翻译文件
  17. GTP track volume control - DAW-style vertical sliders with dB scale (-∞ ~ +12dB)
      GTP音轨音量控制 - 专业DAW风格垂直滑块(dB刻度)，支持每轨独立调节+Master总音量
+ 18. Platform-aware default fonts - automatically selects system-preinstalled fonts on Windows/Linux/macOS
+     平台自适应默认字体 - 根据 Windows/Linux/macOS 自动选择系统预装字体
+ 19. Selection Window rename - main file browser window renamed from "Settings" to "Selection Window"
+     选择窗口重命名 - 主文件浏览窗口从"设置"重命名为"选择窗口"
 
 Created: 2026-06-06 / 创建日期: 2026-06-06
-Last Modified: 2026-06-14 (v2.0.6 - GTP音轨音量控制滑块)
-最后修改: 2026-06-14 (v2.0.6 - GTP音轨音量控制滑块)
+Last Modified: 2026-06-27 (v2.0.7 - 平台自适应字体 + 选择窗口重命名)
+最后修改: 2026-06-27 (v2.0.7 - 平台自适应字体 + 选择窗口重命名)
 
 Dependencies / 依赖库:
   - PyQt5 >= 5.15     # GUI framework (windows/widgets/signals/painting/PDF export)
@@ -81,6 +85,7 @@ import math
 import copy
 import uuid
 import bisect
+import platform  # 检测操作系统, 用于选择平台默认字体
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -238,6 +243,71 @@ THEME_LIGHT = {
 
 # 向后兼容: 默认引用深色主题
 THEME_COLORS = THEME_DARK
+
+
+# ============================================================
+# 平台自适应字体工具函数
+# ============================================================
+
+def get_font_families(font_type: str = "ui") -> List[str]:
+    """
+    根据当前操作系统返回推荐的字体族列表(含 fallback)
+
+    参数:
+        font_type: 字体用途类型
+            - "ui":      主UI/标注字体, 优先保证中文显示效果
+            - "numeric": 数字/英文标签字体, 优先清晰可读
+            - "mono":    等宽字体, 用于 dB 值、页码等需对齐的场景
+
+    返回:
+        字体族名称列表, 元素可直接用于 QFont, 也可用 get_font_family_css() 转为 CSS 字符串
+
+    平台映射说明:
+        Windows: 使用系统预装的微软雅黑/Consolas, 显示效果最佳
+        Linux:   使用常见开源字体(Noto Sans CJK SC / DejaVu), 适配 Ubuntu/Debian/Fedora/Arch
+        macOS:   使用苹方/Heiti SC/Menlo, 与系统风格一致
+    """
+    sys_name = platform.system()
+    if font_type == "mono":
+        if sys_name == "Windows":
+            return ["Consolas", "DejaVu Sans Mono", "monospace"]
+        elif sys_name == "Darwin":
+            return ["Menlo", "Monaco", "DejaVu Sans Mono", "monospace"]
+        else:  # Linux 及其他 Unix-like
+            return ["DejaVu Sans Mono", "Consolas", "monospace"]
+    elif font_type == "numeric":
+        if sys_name == "Windows":
+            return ["Segoe UI", "Microsoft YaHei", "Arial", "sans-serif"]
+        elif sys_name == "Darwin":
+            return ["SF Pro Text", "PingFang SC", "Helvetica Neue", "Arial", "sans-serif"]
+        else:
+            return ["DejaVu Sans", "Noto Sans CJK SC", "WenQuanYi Micro Hei", "sans-serif"]
+    else:  # "ui" 默认
+        if sys_name == "Windows":
+            return ["Microsoft YaHei", "Segoe UI", "Arial", "sans-serif"]
+        elif sys_name == "Darwin":
+            return ["PingFang SC", "Heiti SC", "STHeiti", "Helvetica Neue", "Arial", "sans-serif"]
+        else:
+            return ["Noto Sans CJK SC", "WenQuanYi Micro Hei", "DejaVu Sans", "sans-serif"]
+
+
+def get_font_family(font_type: str = "ui") -> str:
+    """
+    返回当前平台指定类型的首选字体族名称(单个字体名)
+
+    用途: 直接传给 QFont(family, size) 构造函数
+    """
+    return get_font_families(font_type)[0]
+
+
+def get_font_family_css(font_type: str = "ui") -> str:
+    """
+    返回当前平台指定类型的 CSS font-family 字符串(含 fallback 列表)
+
+    用途: 直接嵌入 Qt 样式表, 例如:
+        QLabel {{ font-family: {get_font_family_css('ui')}; }}
+    """
+    return ", ".join(f"'{f}'" for f in get_font_families(font_type))
 
 
 # ============================================================
@@ -425,7 +495,7 @@ class ThemeManager(QObject):
         theme = cls.current()
         base_css = f"""
             {{ background-color: {theme['bg_primary']}; color: {theme['text_primary']};
-               font-family: 'Microsoft YaHei','Segoe UI',sans-serif; }}
+               font-family: {get_font_family_css('ui')}; }}
             QLabel {{ color: {theme['text_primary']}; font-size: 13px; }}
             QLineEdit {{ background-color: {theme['bg_surface']}; color: {theme['text_primary']};
                 border: 1px solid {theme['border']}; border-radius: 5px; padding: 5px 8px; }}
@@ -469,7 +539,7 @@ class Annotation:
     text: str = ""          # 标注文本内容
     color: str = "#F97316"  # 标注颜色
     font_size: int = 14     # 字体大小(px)
-    font_family: str = "Microsoft YaHei"
+    font_family: str = field(default_factory=lambda: get_font_family("ui"))  # 默认使用平台推荐UI字体
     is_bold: bool = False
     background_color: str = "#00000080"
 
@@ -903,14 +973,14 @@ class LoadContentWorker(QRunnable):
 
         # 标题
         painter.setPen(QColor(ThemeManager.get('danger', '#EF4444')))
-        title_font = QFont("Microsoft YaHei", 26, QFont.Bold)
+        title_font = QFont(get_font_family("ui"), 26, QFont.Bold)
         painter.setFont(title_font)
         filename = os.path.basename(self.file_path)
         painter.drawText(QRect(50, 40, 700, 60), Qt.AlignCenter, f"加载失败: {filename}")
 
         # 错误文本
         painter.setPen(QColor(ThemeManager.get('text_primary', '#E2E8F0')))
-        info_font = QFont("Microsoft YaHei", 13)
+        info_font = QFont(get_font_family("ui"), 13)
         painter.setFont(info_font)
         
         # 将message按行分割并绘制
@@ -938,14 +1008,14 @@ class LoadContentWorker(QRunnable):
 
         # 标题
         painter.setPen(QColor(ThemeManager.get('primary', '#3B82F6')))
-        title_font = QFont("Microsoft YaHei", 26, QFont.Bold)
+        title_font = QFont(get_font_family("ui"), 26, QFont.Bold)
         painter.setFont(title_font)
         filename = os.path.basename(self.file_path)
         painter.drawText(QRect(50, 40, 700, 60), Qt.AlignCenter, f"Guitar Pro 文件: {filename}")
 
         # 信息文本
         painter.setPen(QColor(ThemeManager.get('text_primary', '#E2E8F0')))
-        info_font = QFont("Microsoft YaHei", 13)
+        info_font = QFont(get_font_family("ui"), 13)
         painter.setFont(info_font)
         
         # 将message按行分割并绘制
@@ -1006,7 +1076,7 @@ class ModernButton(QPushButton):
                 border: none;
                 border-radius: 8px;
                 padding: 8px 18px;
-                font-family: 'Microsoft YaHei';
+                font-family: {get_font_family_css('ui')};
                 font-size: 12px;
                 font-weight: 500;
             }}
@@ -1050,7 +1120,7 @@ class ModernButton(QPushButton):
                 border: none;
                 border-radius: 8px;
                 padding: 8px 14px 8px 10px;
-                font-family: 'Microsoft YaHei';
+                font-family: {get_font_family_css('ui')};
                 font-size: 12px;
                 font-weight: 500;
             }}
@@ -1326,7 +1396,7 @@ class TrackVolumeSlider(QWidget):
         painter.drawLine(mid_x - 4, int(handle_y), mid_x + 4, int(handle_y))
         
         # ===== 5. 绘制当前dB值(手柄下方) =====
-        font = QFont('Consolas', 7, QFont.Bold)
+        font = QFont(get_font_family("mono"), 7, QFont.Bold)
         painter.setFont(font)
         painter.setPen(QColor(text_primary))
         
@@ -1341,7 +1411,7 @@ class TrackVolumeSlider(QWidget):
         painter.drawText(db_text_x, track_bottom + 12, db_text)
         
         # ===== 6. 绘制底部音轨名称 =====
-        font = QFont('Microsoft YaHei', 8)
+        font = QFont(get_font_family("ui"), 8)
         painter.setFont(font)
         painter.setPen(QColor(text_muted))
         
@@ -1486,7 +1556,7 @@ class ProgressBarSlider(QWidget):
 
         # 位置文字
         painter.setPen(QColor(text_muted))
-        painter.setFont(QFont("Microsoft YaHei", 9))
+        painter.setFont(QFont(get_font_family("numeric"), 9))
         painter.drawText(rect.x() + 4, rect.y() + 11, f"{self._position:.1f}%")
         painter.end()
 
@@ -1544,12 +1614,12 @@ class SpeedCurveEditor(QDialog):
         t = ThemeManager.current()
         self.setStyleSheet(f"""
             QDialog {{ background-color: {t['bg_primary']}; }}
-            QLabel {{ color: {t['text_primary']}; font-family: 'Microsoft YaHei'; }}
+            QLabel {{ color: {t['text_primary']}; font-family: {get_font_family_css('ui')}; }}
             QGroupBox {{ color: {t['text_primary']}; border: 1px solid {t['border']};
                          border-radius: 8px; margin-top: 10px; padding-top: 10px; font-weight: bold; }}
             QCheckBox {{ color: {t['text_primary']}; }}
             QPushButton {{ background-color: {t['primary']}; color: white; border: none;
-                          border-radius: 6px; padding: 6px 14px; font-family: 'Microsoft YaHei'; }}
+                          border-radius: 6px; padding: 6px 14px; font-family: {get_font_family_css('ui')}; }}
             QPushButton:hover {{ background-color: {t['primary_hover']}; }}
         """)
 
@@ -1692,7 +1762,7 @@ class _SpeedCurveCanvas(QWidget):
 
         # 坐标标签
         painter.setPen(QColor(text_muted))
-        painter.setFont(QFont("Microsoft YaHei", 9))
+        painter.setFont(QFont(get_font_family("numeric"), 9))
         for pct in [0, 25, 50, 75, 100]:
             painter.drawText(draw_rect.x()+int(draw_rect.width()*pct/100)-10, draw_rect.bottom()+16, f"{pct}%")
         for spd in [0, 50, 100, 150]:
@@ -1803,14 +1873,14 @@ class AnnotationCreateDialog(QDialog):
         t = ThemeManager.current()
         self.setStyleSheet(f"""
             QDialog {{ background-color: {t['bg_primary']}; }}
-            QLabel {{ color: {t['text_primary']}; font-family: 'Microsoft YaHei'; }}
+            QLabel {{ color: {t['text_primary']}; font-family: {get_font_family_css('ui')}; }}
             QTextEdit {{ background-color: {t['bg_surface']}; color: {t['text_primary']};
                         border: 1px solid {t['border']}; border-radius: 6px; padding: 6px; }}
             QSpinBox {{ background-color: {t['bg_surface']}; color: {t['text_primary']};
                         border: 1px solid {t['border']}; border-radius: 4px; padding: 4px; }}
             QCheckBox {{ color: {t['text_primary']}; }}
             QPushButton {{ background-color: {t['primary']}; color: white; border: none;
-                           border-radius: 6px; padding: 8px 20px; font-family: 'Microsoft YaHei'; }}
+                           border-radius: 6px; padding: 8px 20px; font-family: {get_font_family_css('ui')}; }}
             QPushButton:hover {{ background-color: {t['primary_hover']}; }}
         """)
         layout=QVBoxLayout(self)
@@ -1897,14 +1967,14 @@ class AnnotationEditDialog(QDialog):
         t = ThemeManager.current()
         self.setStyleSheet(f"""
             QDialog {{ background-color: {t['bg_primary']}; }}
-            QLabel {{ color: {t['text_primary']}; font-family: 'Microsoft YaHei'; }}
+            QLabel {{ color: {t['text_primary']}; font-family: {get_font_family_css('ui')}; }}
             QTextEdit {{ background-color: {t['bg_surface']}; color: {t['text_primary']};
                         border: 1px solid {t['border']}; border-radius: 6px; padding: 6px; }}
             QSpinBox {{ background-color: {t['bg_surface']}; color: {t['text_primary']};
                         border: 1px solid {t['border']}; border-radius: 4px; padding: 4px; }}
             QCheckBox {{ color: {t['text_primary']}; }}
             QPushButton {{ background-color: {t['primary']}; color: white; border: none;
-                           border-radius: 6px; padding: 8px 20px; font-family: 'Microsoft YaHei'; }}
+                           border-radius: 6px; padding: 8px 20px; font-family: {get_font_family_css('ui')}; }}
             QPushButton:hover {{ background-color: {t['primary_hover']}; }}
             QPushButton#deleteBtn {{ background-color: {ThemeManager.get('danger', '#EF4444')}; }}
             QPushButton#deleteBtn:hover {{ background-color: #DC2626; }}
@@ -1990,7 +2060,7 @@ class AnnotationManagerDialog(QDialog):
         t = ThemeManager.current()
         self.setStyleSheet(f"""
             QDialog{{background-color:{t['bg_primary']};}}
-            QLabel{{color:{t['text_primary']};font-family:'Microsoft YaHei';}}
+            QLabel{{color:{t['text_primary']};font-family:{get_font_family_css('ui')};}}
             QListWidget{{background-color:{t['bg_surface']};color:{t['text_primary']};
                         border:1px solid{t['border']};border-radius:6px;}}
             QListWidget::item:selected{{background-color:{t['primary']};}}
@@ -2599,7 +2669,7 @@ class DisplayWidget(QWidget):
 
         if not self.images:
             painter.setPen(QColor(text_muted))
-            painter.setFont(QFont("Microsoft YaHei",15))
+            painter.setFont(QFont(get_font_family("ui"),15))
             painter.drawText(self.rect(),Qt.AlignCenter,
                 I18n.t("messages.open_file_hint"))
             painter.end(); return
@@ -2631,7 +2701,7 @@ class DisplayWidget(QWidget):
         if self.parent_window and self.parent_window.is_loading:
             painter.fillRect(self.rect(),QColor(0,0,0,120))
             painter.setPen(QColor(primary))
-            painter.setFont(QFont("Microsoft YaHei",18))
+            painter.setFont(QFont(get_font_family("ui"),18))
             painter.drawText(self.rect(),Qt.AlignCenter,I18n.t("messages.loading"))
         painter.end()
 
@@ -2743,7 +2813,7 @@ class DisplayWidget(QWidget):
         
         # 绘制当前音高信息文字（右上角）
         painter.setPen(color)
-        painter.setFont(QFont("Arial", 9))
+        painter.setFont(QFont(get_font_family("numeric"), 9))
         pitch_names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"]
         octave = midi_pitch // 12 - 1
         note_name = pitch_names[midi_pitch % 12]
@@ -2849,7 +2919,7 @@ class DisplayWidget(QWidget):
                     
                     # 小节号标签
                     painter.setPen(QColor(59, 130, 246, 180))
-                    painter.setFont(QFont("Arial", 8))
+                    painter.setFont(QFont(get_font_family("numeric"), 8))
                     painter.drawText(int(mx1) + 2, int(my1) + 10, f"{meas_idx + 1}")
         
         # === 2. 绘制竖线(Playhead Line) ===
@@ -3142,7 +3212,7 @@ class DisplayWindow(QMainWindow):
         t = ThemeManager.current()
         self.setStyleSheet(f"""
             QMainWindow,QWidget{{background-color:{t['bg_primary']};color:{t['text_primary']};
-                font-family:'Microsoft YaHei','Segoe UI',sans-serif;}}
+                font-family:{get_font_family_css('ui')};}}
             QLabel{{color:{t['text_primary']};font-size:13px;}}
             QSlider::groove:horizontal{{border:none;height:4px;background:{t['bg_surface']};border-radius:2px;}}
             QSlider::handle:horizontal{{background:{t['primary']};border:2px solid{t['bg_primary']};
@@ -3164,7 +3234,7 @@ class DisplayWindow(QMainWindow):
         主题切换时刷新DisplayWindow所有UI组件样式
         
         调用时机:
-          - SettingsWindow._on_theme_changed() 切换主题时调用
+          - SelectionWindow._on_theme_changed() 切换主题时调用
           - 也可连接到 ThemeManager.theme_changed 信号
         
         刷新内容:
@@ -5178,7 +5248,7 @@ class DisplayWindow(QMainWindow):
 
             # 页码(底部居中)
             painter.setPen(QColor("#999999"))
-            painter.setFont(QFont("Arial", 9))
+            painter.setFont(QFont(get_font_family("numeric"), 9))
             painter.drawText(QRect(0, int(printer_rect.height()) - 35, draw_w, 35),
                            Qt.AlignCenter, f"- {page_idx+1}/{n_pages} -")
             printed += 1
@@ -5460,7 +5530,7 @@ class DisplayWindow(QMainWindow):
             p.drawPixmap(0, 0, QPixmap.fromImage(page_buffer))  # 预渲染内容(QImage→QPixmap转换)
 
             # 页码(A4底部固定位置)
-            p.setPen(QColor("#999999")); p.setFont(QFont("Arial",9))
+            p.setPen(QColor("#999999")); p.setFont(QFont(get_font_family("numeric"),9))
             p.drawText(QRect(0, a4_h - 25, draw_w, 25), Qt.AlignCenter, f"- {page_idx+1}/{n_pages} -")
             p.end()
 
@@ -5571,7 +5641,7 @@ class DisplayWindow(QMainWindow):
             p.drawPixmap(0, 0, QPixmap.fromImage(page_buffer))
 
             # 页码(A4底部固定位置)
-            p.setPen(QColor("#666666")); p.setFont(QFont("Arial",9))
+            p.setPen(QColor("#666666")); p.setFont(QFont(get_font_family("numeric"),9))
             p.drawText(QRect(0, a4_h - 25, draw_w, 25), Qt.AlignCenter, f"- {page_idx+1}/{n_pages} -")
             p.end()
 
@@ -5658,7 +5728,7 @@ class DisplayWindow(QMainWindow):
             p.drawPixmap(0, 0, QPixmap.fromImage(page_buffer))  # 预渲染内容(QImage→QPixmap转换)
 
             # 页码
-            p.setPen(QColor("#999999")); p.setFont(QFont("Arial",9))
+            p.setPen(QColor("#999999")); p.setFont(QFont(get_font_family("numeric"),9))
             p.drawText(QRect(0, a4_h - 25, draw_w, 25), Qt.AlignCenter, f"- {page_idx+1}/{n_pages} -")
             p.end()
 
@@ -6285,10 +6355,10 @@ class ExportProgressDialog(QDialog):
 # 设置窗口 - 文件浏览与配置
 # ============================================================
 
-class SettingsWindow(QMainWindow):
+class SelectionWindow(QMainWindow):
     """
-    设置主窗口
-    功能: 文件夹浏览、文件列表、速度配置、启动显示窗口
+    选择主窗口(原 SettingsWindow)
+    功能: 文件夹浏览、文件列表、语言/主题选择、启动谱面显示窗口
     """
 
     def __init__(self):
@@ -6381,11 +6451,11 @@ class SettingsWindow(QMainWindow):
         main_layout.addWidget(self.file_list)
 
     def _apply_theme(self)->None:
-        """应用当前主题样式到SettingsWindow - 从ThemeManager读取当前主题配色"""
+        """应用当前主题样式到SelectionWindow - 从ThemeManager读取当前主题配色"""
         t = ThemeManager.current()
         self.setStyleSheet(f"""
             QMainWindow,QWidget{{background-color:{t['bg_primary']};color:{t['text_primary']};
-                font-family:'Microsoft YaHei','Segoe UI',sans-serif;}}
+                font-family:{get_font_family_css('ui')};}}
             QLabel{{color:{t['text_primary']};font-size:13px;}}
             QPushButton{{background-color:{t['primary']};color:white;border:none;
                 border-radius:6px;padding:7px 16px;font-weight:500;}}
@@ -6742,5 +6812,5 @@ if __name__ == '__main__':
     # v2.0新增: 应用保存的主题（在创建窗口之前）
     ThemeManager.set_theme(saved_theme)
 
-    settings = SettingsWindow()
+    settings = SelectionWindow()
     sys.exit(app.exec_())

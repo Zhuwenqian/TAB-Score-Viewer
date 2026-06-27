@@ -634,7 +634,7 @@ TAB Score Viewer/
 
 ### 架构模式
 
-- **MVC 分离**: SettingsWindow(视图/控制) + DisplayWidget(视图) + 数据模型(dataclass)
+- **MVC 分离**: SelectionWindow(视图/控制) + DisplayWidget(视图) + 数据模型(dataclass)
 - **观察者模式**: PyQt5 信号槽机制实现组件间通信
 - **工厂模式**: Worker 类统一封装异步任务
 - **命令模式**: 撤销/重做通过快照栈实现

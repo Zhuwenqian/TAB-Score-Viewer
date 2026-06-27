@@ -466,7 +466,7 @@ Library SynthEngine:                                Library SynthEngine:
 
 | Pattern | Application |
 |---------|-------------|
-| MVC Separation | SettingsWindow(View/Control) + DisplayWidget(View) + dataclass(Model) |
+| MVC Separation | SelectionWindow(View/Control) + DisplayWidget(View) + dataclass(Model) |
 | Observer Pattern | PyQt5 signals/slots / ThemeManager.theme_changed |
 | Singleton Pattern | ThemeManager / I18n |
 | Factory Pattern | Worker classes for async task encapsulation |
@@ -494,7 +494,7 @@ Library SynthEngine:                                Library SynthEngine:
 
 ```
 +--------------------------------------------------+
-|               SettingsWindow (Main Window)         |
+|               SelectionWindow (Main Window)         |
 |  +----------+ +------------+ +------------------+  |
 |  | File List| | Toolbar    | | Bottom Progress   |  |
 |  | (SVG Icons)│ | (SVG Icons) | | Bar w/ Page Input |  |

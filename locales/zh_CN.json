@@ -6,7 +6,7 @@
   },
   "app": {
     "title": "TAB Score Viewer - 吉他谱查看器",
-    "settings_title": "TAB Score Viewer - 设置",
+    "settings_title": "TAB Score Viewer - 选择窗口",
     "multi_images": "多张图片",
     "score_name": "谱面"
   },
