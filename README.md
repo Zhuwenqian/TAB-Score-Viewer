@@ -1,4 +1,4 @@
-# TAB Score Viewer - Guitar TAB Score Viewer / 万能吉他谱查看器
+# TAB Score Viewer / 万能吉他谱查看器
 
 **[English](#english)** | **[中文](#中文)**
 
