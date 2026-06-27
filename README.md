@@ -12,7 +12,7 @@ A powerful Guitar TAB score viewer powered by [ApolloTab](https://github.com/Zhu
 
 <p align="center">
   <img src="renderedlight (1).png" alt="TAB Score Viewer - Light Theme Screenshot 1" width="45%" />
-  <img src="renderedlight (2).png" alt="TAB Score Viewer - Light Theme Screenshot 2" width="45%" />
+  <img src="renderedlight (2).png" alt="TAB Score Viewer - Dark Theme Screenshot 2" width="45%" />
 </p>
 
 ## Features
