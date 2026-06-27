@@ -4766,6 +4766,8 @@ class DisplayWindow(QMainWindow):
         self.page_input.blockSignals(True)
         self.page_input.setValue(current_page)
         self.page_input.blockSignals(False)
+        # 性能优化(P2-4): 通知DisplayWidget当前页面位置，触发LRU缓存窗口更新
+        self.display_widget.set_active_page(current_page - 1)  # 转为0-based索引
 
     # ========== 事件处理 ==========
 
