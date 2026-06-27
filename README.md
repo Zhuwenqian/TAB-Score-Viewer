@@ -10,6 +10,11 @@ A powerful Guitar TAB score viewer powered by [ApolloTab](https://github.com/Zhu
 
 # English
 
+<p align="center">
+  <img src="renderedlight (1).png" alt="TAB Score Viewer - Light Theme Screenshot 1" width="45%" />
+  <img src="renderedlight (2).png" alt="TAB Score Viewer - Light Theme Screenshot 2" width="45%" />
+</p>
+
 ## Features
 
 | Feature                      | Description                                                                                           |
@@ -200,7 +205,7 @@ TAB Score Viewer/
 | **Image**      | Pillow >= 10.0                                       | PNG/JPG/WEBP decoding                                                  |
 | **GTP Engine** | [ApolloTab](https://github.com/Zhuwenqian/ApolloTab) | Guitar Pro parsing, TAB rendering, audio playback (standalone library) |
 | **Audio**      | pyfluidsynth >= 1.4.0                                | FluidSynth MIDI synthesis (via ApolloTab)                              |
-| **Packaging**  | PyInstaller                                          | Python to Windows EXE                                                  |
+| **Packaging**  | PyInstaller                                          | Python to Windows EXE / Linux DEB+ZIP / macOS APP                      |
 
 **Architecture Patterns**: MVC, Observer (signals), Factory (Workers), Command (undo/redo), Singleton (I18n), Facade (GTPPlayer), Async (QThreadPool)
 
@@ -222,7 +227,7 @@ See [ApolloTab on GitHub](https://github.com/Zhuwenqian/ApolloTab) for details.
 
 ## Packaging & Distribution
 
-Supports **Windows** (EXE) and **Linux** (DEB / ZIP) packaging.
+Supports **Windows** (EXE), **Linux** (DEB / ZIP), and **macOS** (APP) packaging.
 
 ### Windows (EXE)
 
@@ -235,6 +240,54 @@ pyinstaller "TAB Score Viewer.spec"
 
 # Double-click TAB Score Viewer.exe to run
 ```
+
+### macOS (APP Bundle)
+
+> Native `.app` bundle with full GUI support.
+
+**Prerequisites:**
+
+```bash
+# Install build tools (if not already installed)
+xcode-select --install                    # Xcode Command Line Tools
+pip install pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+**Build:**
+
+```bash
+# Build with PyInstaller (same spec file, macOS PyInstaller auto-detects)
+pyinstaller "TAB Score Viewer.spec"
+
+# The .app bundle will be generated at:
+#   dist/TAB Score Viewer.app
+```
+
+**Run:**
+
+```bash
+# Option A: Double-click TAB Score Viewer.app in Finder
+# Option B: Run from terminal
+open "dist/TAB Score Viewer.app"
+```
+
+**System Dependencies (required for GTP audio playback):**
+
+```bash
+# Install FluidSynth via Homebrew
+brew install fluidsynth libsndfile
+
+# Or via MacPorts
+sudo port install fluidsynth libsndfile
+```
+
+> **Note**: Qt5 (PyQt5 dependency) is bundled with the Python package, no system-wide Qt installation required. The SoundFont file (`soundfont/FluidR3_GM.sf2`) is still needed for GTP audio — see [Quick Start](#quick-start) for download instructions.
+
+**macOS-Specific Notes:**
+- The `.app` bundle includes all dependencies (Python runtime, PyQt5, libraries, locales, icons)
+- macOS Gatekeeper may block unsigned apps: go to **System Settings → Privacy & Security** and click "Open Anyway"
+- For distribution, sign the app with `codesign` or notarize via Apple Developer account
+- First launch may be slow due to macOS quarantine check; run `xattr -rd com.apple.quarantine "TAB Score Viewer.app"` to bypass
 
 ### Linux (DEB Package - Recommended)
 
@@ -313,11 +366,13 @@ sudo apt-get install fluid-soundfont-gm    # Ubuntu/Debian
 | Setting     | Value                          | Description                            |
 | ----------- | ------------------------------ | --------------------------------------- |
 | Mode        | onedir (directory)             | Not single-file, faster startup         |
-| Icon        | icon.ico                       | exe + window/taskbar icon               |
+| Icon        | icon.ico                       | exe/app + window/taskbar icon           |
 | Console     | False                          | No command line window (GUI app)        |
-| UPX compress| True                           | Reduce size (requires UPX installed)   |
+| UPX compress| True                           | Reduce size (requires UPX installed)    |
 | Data files  | locales/, DLLs, icons/, soundfont/, icon.ico | Translations/audio libs/icons/SoundFont/icon |
 | Hidden imports | ApolloTab.* etc.           | Dynamically imported modules declared   |
+
+> **Note**: macOS uses the same `.spec` file as Windows — PyInstaller on macOS automatically detects the platform and produces a `.app` bundle. The Linux build uses its own `TAB Score Viewer_linux.spec` for platform-specific configuration.
 
 ## Third-Party Components
 
@@ -364,6 +419,11 @@ The code in this project is **AI-assisted (GLM-5V-Turbo)**. The author is respon
 
 # 中文
 
+<p align="center">
+  <img src="renderedlight (1).png" alt="TAB Score Viewer 浅色主题截图1" width="45%" />
+  <img src="renderedlight (2).png" alt="TAB Score Viewer 浅色主题截图2" width="45%" />
+</p>
+
 ## 功能特性
 
 | 功能            | 说明                                                                   |
@@ -389,7 +449,7 @@ The code in this project is **AI-assisted (GLM-5V-Turbo)**. The author is respon
 | **键盘快捷键**     | 空格播放/暂停、方向键调速/Ctrl+Z撤销/Ctrl+Y重做/ESC关闭                                   |
 | **多语言界面**     | 支持中文(简体)/英文切换，翻译文件位于 locales/ 目录，设置中一键切换                             |
 | **应用图标**      | 自定义图标(icon.ico)，窗口图标 + 任务栏图标统一显示                                     |
-| **跨平台打包**     | 支持 PyInstaller 打包：Windows EXE / Linux DEB+ZIP（详见[打包发布说明](#打包发布说明)） |
+| **跨平台打包**     | 支持 PyInstaller 打包：Windows EXE / Linux DEB+ZIP / macOS APP（详见[打包发布说明](#打包发布说明)） |
 
 ## 快速开始
 
@@ -605,7 +665,7 @@ pages = render_gtp("my_song.gp5", track_index=0)
 
 ## 打包发布说明
 
-支持 **Windows** (EXE) 和 **Linux** (DEB / ZIP) 两种平台的打包发布。
+支持 **Windows** (EXE)、**Linux** (DEB / ZIP) 和 **macOS** (APP) 三种平台的打包发布。
 
 ### Windows（EXE 安装包）
 
@@ -618,6 +678,54 @@ pyinstaller "TAB Score Viewer.spec"
 
 # 双击运行 TAB Score Viewer.exe
 ```
+
+### macOS（APP 安装包）
+
+> 原生 `.app` 应用包，完整 GUI 支持。
+
+**前置条件：**
+
+```bash
+# 安装构建工具（如果尚未安装）
+xcode-select --install                    # Xcode 命令行工具
+pip install pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+**构建：**
+
+```bash
+# 使用 PyInstaller 打包（与 Windows 共用同一 spec 文件）
+pyinstaller "TAB Score Viewer.spec"
+
+# 生成的 .app 包位于：
+#   dist/TAB Score Viewer.app
+```
+
+**运行：**
+
+```bash
+# 方式 A：在 Finder 中双击 TAB Score Viewer.app
+# 方式 B：从终端运行
+open "dist/TAB Score Viewer.app"
+```
+
+**系统依赖（GTP 音频播放需要）：**
+
+```bash
+# 通过 Homebrew 安装 FluidSynth
+brew install fluidsynth libsndfile
+
+# 或通过 MacPorts
+sudo port install fluidsynth libsndfile
+```
+
+> **注意**：Qt5（PyQt5 依赖）随 Python 包一起安装，无需系统级 Qt 安装。GTP 音频仍需 SoundFont 文件（`soundfont/FluidR3_GM.sf2`）——详见[快速开始](#快速开始)中的下载说明。
+
+**macOS 特别说明：**
+- `.app` 包包含所有依赖（Python 运行时、PyQt5、动态库、翻译文件、图标等）
+- macOS Gatekeeper 可能阻止未签名的应用：前往 **系统设置 → 隐私与安全性**，点击「仍然打开」
+- 如需分发，请使用 `codesign` 签名或通过 Apple Developer 账户公证
+- 首次启动可能因 macOS 隔离检查而较慢；可运行 `xattr -rd com.apple.quarantine "TAB Score Viewer.app"` 绕过
 
 ### Linux（DEB 安装包 - 推荐）
 
@@ -691,17 +799,18 @@ sudo pacman -S fluidsynth libsndfile pulseaudio alsa-lib qt5-base
 sudo apt-get install fluid-soundfont-gm    # Ubuntu/Debian
 ```
 
-
 ### spec 配置说明 (`TAB Score Viewer.spec`)
 
 | 配置项   | 值                        | 说明                  |
 | ----- | ------------------------ | ------------------- |
 | 模式    | onedir (目录)              | 非单文件，启动更快           |
-| 图标    | icon.ico                 | exe 文件图标 + 窗口/任务栏图标 |
+| 图标    | icon.ico                 | exe/app 图标 + 窗口/任务栏图标 |
 | 控制台   | False                    | 不显示命令行窗口（GUI应用）     |
 | UPX压缩 | True                     | 减小体积（需安装UPX）        |
 | 包含数据  | locales/, DLLs, icons/, soundfont/, icon.ico | 翻译/音频库/图标/音色库/图标         |
 | 隐藏导入  | ApolloTab.\* 等           | 动态导入模块显式声明          |
+
+> **注意**：macOS 使用与 Windows 相同的 `.spec` 文件 —— macOS 上的 PyInstaller 会自动检测平台并生成 `.app` 包。Linux 构建使用独立的 `TAB Score Viewer_linux.spec` 进行平台特定配置。
 
 ## 第三方组件许可证
 
