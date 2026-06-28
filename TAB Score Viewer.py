@@ -202,7 +202,7 @@ ANNOTATION_EXT = ".anno.json"
 # 支持的文件扩展名
 SUPPORTED_IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.webp')
 SUPPORTED_PDF_EXTENSIONS = ('.pdf',)
-SUPPORTED_GTP_EXTENSIONS = ('.gp3', '.gp4', '.gp5', '.gpx', '.gtp')
+SUPPORTED_GTP_EXTENSIONS = ('.gp3', '.gp4', '.gp5', '.gpx', '.gtp', '.gp')
 SUPPORTED_ALL_EXTENSIONS = SUPPORTED_IMAGE_EXTENSIONS + SUPPORTED_PDF_EXTENSIONS + SUPPORTED_GTP_EXTENSIONS
 
 # UI颜色主题 - 深色音乐风格(默认)
@@ -988,7 +988,7 @@ class LoadContentWorker(QRunnable):
 
     def _load_gtp(self) -> List[QPixmap]:
         """
-        加载Guitar Pro文件(.gp3/.gp4/.gp5/.gpx/.gtp)
+        加载Guitar Pro文件(.gp3/.gp4/.gp5/.gpx/.gtp/.gp)
         
         原理: 使用 gtp_engine 库的 GTPPlayer 高级API完整处理 GTP 文件，
               包括解析、渲染、音频初始化等。

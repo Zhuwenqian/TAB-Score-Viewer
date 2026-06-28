@@ -1,0 +1,935 @@
+<?xml version="1.0" encoding="utf-8"?>
+<GPIF>
+<GPVersion>7</GPVersion>
+<GPRevision>12020</GPRevision>
+<Encoding>
+<EncodingDescription>GP7</EncodingDescription>
+</Encoding>
+<Score>
+<Title><![CDATA[Title]]></Title>
+<SubTitle><![CDATA[Subtitle]]></SubTitle>
+<Artist><![CDATA[Artist]]></Artist>
+<Album><![CDATA[Album]]></Album>
+<Words><![CDATA[Words]]></Words>
+<Music><![CDATA[Music]]></Music>
+<WordsAndMusic><![CDATA[]]></WordsAndMusic>
+<Copyright><![CDATA[Copyright]]></Copyright>
+<Tabber><![CDATA[Tab]]></Tabber>
+<Instructions><![CDATA[Instructions]]></Instructions>
+<Notices><![CDATA[Notice1
+Notice2]]></Notices>
+<FirstPageHeader><![CDATA[<html><head><meta name="qrichtext" content="1" /><style type="text/css">p, li { white-space: pre-wrap; }</style></head><body style=" font-family:'Times New Roman'; font-size:16pt; font-weight:400; font-style:normal;"><p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-family:'Sans Serif'; font-size:10pt;"><span style=" font-family:'Times New Roman'; font-size:35pt;">%TITLE%</span></p><p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-family:'Sans Serif'; font-size:10pt;"><span style=" font-family:'Times New Roman'; font-size:16pt;">%SUBTITLE%</span></p><p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-family:'Sans Serif'; font-size:10pt;"><span style=" font-family:'Times New Roman'; font-size:16pt;">%ARTIST%</span></p><p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-family:'Sans Serif'; font-size:10pt;"><span style=" font-family:'Times New Roman'; font-size:16pt;">%ALBUM%</span></p><p align="center" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-family:'Sans Serif'; font-size:10pt;"><span style=" font-family:'Times New Roman'; font-size:12pt;">%WORDS&MUSIC%</span></p></body></html>]]></FirstPageHeader>
+<FirstPageFooter><![CDATA[<html><head><meta name="qrichtext" content="1" /><style type="text/css">p, li { white-space: pre-wrap; }</style></head><body style=" font-family:'Lucida Grande'; font-size:13pt; font-weight:400; font-style:normal;"><p align="right" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-family:'Times'; font-size:14pt;">Page %page%/%pages%</p></body></html>]]></FirstPageFooter>
+<PageHeader><![CDATA[]]></PageHeader>
+<PageFooter><![CDATA[<html><head><meta name="qrichtext" content="1" /><style type="text/css">p, li { white-space: pre-wrap; }</style></head><body style=" font-family:'Lucida Grande'; font-size:13pt; font-weight:400; font-style:normal;"><p align="right" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-family:'Times'; font-size:14pt;">Page %page%/%pages%</p></body></html>]]></PageFooter>
+<ScoreSystemsDefaultLayout>3</ScoreSystemsDefaultLayout>
+<ScoreSystemsLayout>3 2</ScoreSystemsLayout>
+<ScoreZoomPolicy>Value</ScoreZoomPolicy>
+<ScoreZoom>1</ScoreZoom>
+<MultiVoice>0></MultiVoice>
+</Score>
+<MasterTrack>
+<Tracks>0 1</Tracks>
+<Automations>
+<Automation>
+<Type>Tempo</Type>
+<Linear>false</Linear>
+<Bar>0</Bar>
+<Position>0</Position>
+<Visible>true</Visible>
+<Text><![CDATA[Moderate]]></Text>
+<Value>120 2</Value>
+</Automation>
+</Automations>
+<RSE>
+<Master>
+<Effect id="M06_DynamicAnalogDynamic">
+<ByPass />
+<Parameters>0 0 0.8 0 0.4 0.6 0.5 0.5</Parameters>
+</Effect>
+<Effect id="M03_StudioReverbRoomStudioA">
+<ByPass />
+<Parameters>1 0.6 0.4 0.5 0.2</Parameters>
+</Effect>
+<Effect id="M08_GraphicEQ10Band">
+<Parameters>0 0 0.5 0.5 0.5 0.5 0.5 0.5 0.5 0.5 0.5 0.5 0.5</Parameters>
+</Effect>
+<Effect id="I01_VolumeAndPan">
+<Parameters>0.76 0.5</Parameters>
+<Automations>
+<Automation>
+<Type>DSPParam_00</Type>
+<Linear>false</Linear>
+<Bar>0</Bar>
+<Position>0</Position>
+<Visible>false</Visible>
+<Value>0.76</Value>
+</Automation>
+<Automation>
+<Type>DSPParam_01</Type>
+<Linear>false</Linear>
+<Bar>0</Bar>
+<Position>0</Position>
+<Visible>false</Visible>
+<Value>0.5</Value>
+</Automation>
+</Automations>
+</Effect>
+</Master>
+</RSE>
+</MasterTrack>
+<AudioTracks>
+</AudioTracks>
+<Tracks>
+<Track id="0">
+<Name><![CDATA[Track 1]]></Name>
+<ShortName><![CDATA[S-Gt]]></ShortName>
+<Color>246 74 38</Color>
+<SystemsDefautLayout>3</SystemsDefautLayout>
+<SystemsLayout>4 1</SystemsLayout>
+<PalmMute>0</PalmMute>
+<PlayingStyle>Default</PlayingStyle>
+<UseOneChannelPerString />
+<IconId>1</IconId>
+<InstrumentSet>
+<Name>Steel Guitar</Name>
+<Type>steelGuitar</Type>
+<LineCount>5</LineCount>
+<Elements>
+<Element>
+<Name>Pitched</Name>
+<Type>pitched</Type>
+<SoundbankName></SoundbankName>
+<Articulations>
+<Articulation>
+<Name></Name>
+<StaffLine>0</StaffLine>
+<Noteheads>noteheadBlack noteheadHalf noteheadWhole</Noteheads>
+<TechniquePlacement>outside</TechniquePlacement>
+<TechniqueSymbol></TechniqueSymbol>
+<InputMidiNumbers></InputMidiNumbers>
+<OutputRSESound></OutputRSESound>
+<OutputMidiNumber>0</OutputMidiNumber>
+</Articulation>
+</Articulations>
+</Element>
+</Elements>
+</InstrumentSet>
+
+<Transpose>
+<Chromatic>0</Chromatic>
+<Octave>-1</Octave>
+</Transpose>
+<RSE>
+<ChannelStrip version="E56">
+<Parameters>0.6 0.68 1 0.62 0.75 0.5 0.66 0.18 0.6 1 0.5 0.5 0.755 0.5 0.5 0.5</Parameters>
+<Automations>
+<Automation>
+<Type>DSPParam_11</Type>
+<Linear>false</Linear>
+<Bar>0</Bar>
+<Position>0</Position>
+<Visible>false</Visible>
+<Value>0.5</Value>
+</Automation>
+<Automation>
+<Type>DSPParam_12</Type>
+<Linear>false</Linear>
+<Bar>0</Bar>
+<Position>0</Position>
+<Visible>false</Visible>
+<Value>0.755</Value>
+</Automation>
+</Automations>
+</ChannelStrip>
+</RSE>
+<ForcedSound>-1</ForcedSound>
+<Sounds>
+<Sound>
+<Name><![CDATA[Acoustic Guitar (Steel)]]></Name>
+<Label><![CDATA[Acoustic Guitar (Steel)]]></Label>
+<Path>Stringed/Acoustic Guitars/Steel Guitar</Path>
+<Role>User</Role>
+<MIDI>
+<LSB>0</LSB>
+<MSB>0</MSB>
+<Program>25</Program>
+</MIDI>
+<RSE>
+<SoundbankPatch>D-Steel</SoundbankPatch>
+<Pickups>
+<OverloudPosition>0</OverloudPosition>
+<Volumes>1 1</Volumes>
+<Tones>1 1</Tones>
+</Pickups>
+<EffectChain>
+<Effect id="E30_EqGEq">
+<Parameters>0.78 0.76 0.49 0.53 0.29 0.82 0.9 0.314286</Parameters>
+</Effect>
+<Effect />
+<Effect />
+<Effect />
+<Effect />
+<Effect />
+</EffectChain>
+</RSE>
+</Sound>
+</Sounds>
+<MidiConnection>
+<Port>0</Port>
+<PrimaryChannel>0</PrimaryChannel>
+<SecondaryChannel>1</SecondaryChannel>
+<ForeOneChannelPerString>false</ForeOneChannelPerString>
+</MidiConnection>
+<PlaybackState>Default</PlaybackState>
+<AudioEngineState>RSE</AudioEngineState>
+<Lyrics dispatched="true">
+<Line>
+<Text><![CDATA[Line1]]></Text>
+<Offset>0</Offset>
+</Line>
+<Line>
+<Text><![CDATA[Line2]]></Text>
+<Offset>1</Offset>
+</Line>
+<Line>
+<Text><![CDATA[Line3]]></Text>
+<Offset>2</Offset>
+</Line>
+<Line>
+<Text><![CDATA[Line4]]></Text>
+<Offset>3</Offset>
+</Line>
+<Line>
+<Text><![CDATA[Line5]]></Text>
+<Offset>4</Offset>
+</Line>
+</Lyrics>
+<Staves>
+<Staff>
+<Properties>
+<Property name="CapoFret">
+<Fret>0</Fret>
+</Property>
+<Property name="FretCount">
+<Number>24</Number>
+</Property>
+<Property name="PartialCapoFret">
+<Fret>0</Fret>
+</Property>
+<Property name="PartialCapoStringFlags">
+<Flags>0</Flags>
+</Property>
+<Property name="Tuning">
+<Pitches>40 45 50 55 59 64</Pitches>
+<Instrument>1</Instrument>
+
+</Property>
+<Property name="ChordCollection">
+<Items/>
+
+</Property>
+<Property name="ChordWorkingSet">
+<Items/>
+
+</Property>
+<Property name="DiagramCollection">
+<Items/>
+
+</Property>
+<Property name="DiagramWorkingSet">
+<Items/>
+
+</Property>
+<Name><![CDATA[Standard]]></Name>
+</Properties>
+</Staff>
+</Staves>
+<Automations>
+<Automation>
+<Type>Sound</Type>
+<Linear>false</Linear>
+<Bar>0</Bar>
+<Position>0</Position>
+<Visible>true</Visible>
+<Value><![CDATA[Stringed/Acoustic Guitars/Steel Guitar;Acoustic Guitar (Steel);User]]></Value>
+</Automation>
+</Automations>
+</Track>
+<Track id="1">
+<Name><![CDATA[Track 2]]></Name>
+<ShortName><![CDATA[S-Gt]]></ShortName>
+<Color>246 74 38</Color>
+<SystemsDefautLayout>3</SystemsDefautLayout>
+<SystemsLayout>3 2</SystemsLayout>
+<PalmMute>0</PalmMute>
+<PlayingStyle>Default</PlayingStyle>
+<UseOneChannelPerString />
+<IconId>1</IconId>
+<InstrumentSet>
+<Name>Steel Guitar</Name>
+<Type>steelGuitar</Type>
+<LineCount>5</LineCount>
+<Elements>
+<Element>
+<Name>Pitched</Name>
+<Type>pitched</Type>
+<SoundbankName></SoundbankName>
+<Articulations>
+<Articulation>
+<Name></Name>
+<StaffLine>0</StaffLine>
+<Noteheads>noteheadBlack noteheadHalf noteheadWhole</Noteheads>
+<TechniquePlacement>outside</TechniquePlacement>
+<TechniqueSymbol></TechniqueSymbol>
+<InputMidiNumbers></InputMidiNumbers>
+<OutputRSESound></OutputRSESound>
+<OutputMidiNumber>0</OutputMidiNumber>
+</Articulation>
+</Articulations>
+</Element>
+</Elements>
+</InstrumentSet>
+
+<Transpose>
+<Chromatic>0</Chromatic>
+<Octave>-1</Octave>
+</Transpose>
+<RSE>
+<ChannelStrip version="E56">
+<Parameters>0.6 0.68 1 0.62 0.75 0.5 0.66 0.18 0.6 1 0.5 0.5 0.755 0.5 0.5 0.5</Parameters>
+<Automations>
+<Automation>
+<Type>DSPParam_11</Type>
+<Linear>false</Linear>
+<Bar>0</Bar>
+<Position>0</Position>
+<Visible>false</Visible>
+<Value>0.5</Value>
+</Automation>
+<Automation>
+<Type>DSPParam_12</Type>
+<Linear>false</Linear>
+<Bar>0</Bar>
+<Position>0</Position>
+<Visible>false</Visible>
+<Value>0.755</Value>
+</Automation>
+</Automations>
+</ChannelStrip>
+</RSE>
+<ForcedSound>-1</ForcedSound>
+<Sounds>
+<Sound>
+<Name><![CDATA[Acoustic Guitar (Steel)]]></Name>
+<Label><![CDATA[Acoustic Guitar (Steel)]]></Label>
+<Path>Stringed/Acoustic Guitars/Steel Guitar</Path>
+<Role>User</Role>
+<MIDI>
+<LSB>0</LSB>
+<MSB>0</MSB>
+<Program>25</Program>
+</MIDI>
+<RSE>
+<SoundbankPatch>D-Steel</SoundbankPatch>
+<Pickups>
+<OverloudPosition>0</OverloudPosition>
+<Volumes>1 1</Volumes>
+<Tones>1 1</Tones>
+</Pickups>
+<EffectChain>
+<Effect id="E30_EqGEq">
+<Parameters>0.78 0.76 0.49 0.53 0.29 0.82 0.9 0.314286</Parameters>
+</Effect>
+<Effect />
+<Effect />
+<Effect />
+<Effect />
+<Effect />
+</EffectChain>
+</RSE>
+</Sound>
+</Sounds>
+<MidiConnection>
+<Port>0</Port>
+<PrimaryChannel>2</PrimaryChannel>
+<SecondaryChannel>3</SecondaryChannel>
+<ForeOneChannelPerString>false</ForeOneChannelPerString>
+</MidiConnection>
+<PlaybackState>Default</PlaybackState>
+<AudioEngineState>RSE</AudioEngineState>
+<Lyrics dispatched="true">
+<Line>
+<Text><![CDATA[]]></Text>
+<Offset>0</Offset>
+</Line>
+<Line>
+<Text><![CDATA[]]></Text>
+<Offset>0</Offset>
+</Line>
+<Line>
+<Text><![CDATA[]]></Text>
+<Offset>0</Offset>
+</Line>
+<Line>
+<Text><![CDATA[]]></Text>
+<Offset>0</Offset>
+</Line>
+<Line>
+<Text><![CDATA[]]></Text>
+<Offset>0</Offset>
+</Line>
+</Lyrics>
+<Staves>
+<Staff>
+<Properties>
+<Property name="CapoFret">
+<Fret>0</Fret>
+</Property>
+<Property name="FretCount">
+<Number>24</Number>
+</Property>
+<Property name="PartialCapoFret">
+<Fret>0</Fret>
+</Property>
+<Property name="PartialCapoStringFlags">
+<Flags>0</Flags>
+</Property>
+<Property name="Tuning">
+<Pitches>40 45 50 55 59 64</Pitches>
+<Instrument>1</Instrument>
+
+</Property>
+<Property name="ChordCollection">
+<Items/>
+
+</Property>
+<Property name="ChordWorkingSet">
+<Items/>
+
+</Property>
+<Property name="DiagramCollection">
+<Items/>
+
+</Property>
+<Property name="DiagramWorkingSet">
+<Items/>
+
+</Property>
+<Name><![CDATA[Standard]]></Name>
+</Properties>
+</Staff>
+</Staves>
+<Automations>
+<Automation>
+<Type>Sound</Type>
+<Linear>false</Linear>
+<Bar>0</Bar>
+<Position>0</Position>
+<Visible>true</Visible>
+<Value><![CDATA[Stringed/Acoustic Guitars/Steel Guitar;Acoustic Guitar (Steel);User]]></Value>
+</Automation>
+</Automations>
+</Track>
+</Tracks>
+<MasterBars>
+<!-- order is important here -->
+<MasterBar>
+<Key>
+<AccidentalCount>0</AccidentalCount>
+<Mode>Major</Mode>
+<TransposeAs>Flats</TransposeAs>
+</Key>
+<Time>4/4</Time>
+<Bars>0 1</Bars>
+<XProperties>
+<XProperty id="1124139010">
+<Int>8</Int>
+</XProperty>
+<XProperty id="1124139264">
+<Int>2</Int>
+</XProperty>
+<XProperty id="1124139265">
+<Int>2</Int>
+</XProperty>
+<XProperty id="1124139266">
+<Int>2</Int>
+</XProperty>
+<XProperty id="1124139267">
+<Int>2</Int>
+</XProperty>
+</XProperties>
+</MasterBar>
+<MasterBar>
+<Key>
+<AccidentalCount>0</AccidentalCount>
+<Mode>Major</Mode>
+<TransposeAs>Flats</TransposeAs>
+</Key>
+<Time>4/4</Time>
+<Bars>2 3</Bars>
+<XProperties>
+<XProperty id="1124139010">
+<Int>8</Int>
+</XProperty>
+<XProperty id="1124139264">
+<Int>2</Int>
+</XProperty>
+<XProperty id="1124139265">
+<Int>2</Int>
+</XProperty>
+<XProperty id="1124139266">
+<Int>2</Int>
+</XProperty>
+<XProperty id="1124139267">
+<Int>2</Int>
+</XProperty>
+</XProperties>
+</MasterBar>
+<MasterBar>
+<Key>
+<AccidentalCount>0</AccidentalCount>
+<Mode>Major</Mode>
+<TransposeAs>Flats</TransposeAs>
+</Key>
+<Time>4/4</Time>
+<Bars>4 5</Bars>
+<XProperties>
+<XProperty id="1124139010">
+<Int>8</Int>
+</XProperty>
+<XProperty id="1124139264">
+<Int>2</Int>
+</XProperty>
+<XProperty id="1124139265">
+<Int>2</Int>
+</XProperty>
+<XProperty id="1124139266">
+<Int>2</Int>
+</XProperty>
+<XProperty id="1124139267">
+<Int>2</Int>
+</XProperty>
+</XProperties>
+</MasterBar>
+<MasterBar>
+<Key>
+<AccidentalCount>0</AccidentalCount>
+<Mode>Major</Mode>
+<TransposeAs>Flats</TransposeAs>
+</Key>
+<Time>4/4</Time>
+<Bars>6 7</Bars>
+<XProperties>
+<XProperty id="1124139010">
+<Int>8</Int>
+</XProperty>
+<XProperty id="1124139264">
+<Int>2</Int>
+</XProperty>
+<XProperty id="1124139265">
+<Int>2</Int>
+</XProperty>
+<XProperty id="1124139266">
+<Int>2</Int>
+</XProperty>
+<XProperty id="1124139267">
+<Int>2</Int>
+</XProperty>
+</XProperties>
+</MasterBar>
+<MasterBar>
+<Key>
+<AccidentalCount>0</AccidentalCount>
+<Mode>Major</Mode>
+<TransposeAs>Flats</TransposeAs>
+</Key>
+<Time>4/4</Time>
+<Bars>8 9</Bars>
+<XProperties>
+<XProperty id="1124139010">
+<Int>8</Int>
+</XProperty>
+<XProperty id="1124139264">
+<Int>2</Int>
+</XProperty>
+<XProperty id="1124139265">
+<Int>2</Int>
+</XProperty>
+<XProperty id="1124139266">
+<Int>2</Int>
+</XProperty>
+<XProperty id="1124139267">
+<Int>2</Int>
+</XProperty>
+</XProperties>
+</MasterBar>
+</MasterBars>
+<Bars>
+<Bar id="0">
+<Clef>G2</Clef>
+<Voices>0 -1 -1 -1</Voices>
+</Bar>
+<Bar id="1">
+<Clef>G2</Clef>
+<Voices>1 -1 -1 -1</Voices>
+</Bar>
+<Bar id="2">
+<Clef>G2</Clef>
+<Voices>2 -1 -1 -1</Voices>
+</Bar>
+<Bar id="3">
+<Clef>G2</Clef>
+<Voices>3 -1 -1 -1</Voices>
+</Bar>
+<Bar id="4">
+<Clef>G2</Clef>
+<Voices>4 -1 -1 -1</Voices>
+</Bar>
+<Bar id="5">
+<Clef>G2</Clef>
+<Voices>5 -1 -1 -1</Voices>
+</Bar>
+<Bar id="6">
+<Clef>G2</Clef>
+<Voices>6 -1 -1 -1</Voices>
+</Bar>
+<Bar id="7">
+<Clef>G2</Clef>
+<Voices>7 -1 -1 -1</Voices>
+</Bar>
+<Bar id="8">
+<Clef>G2</Clef>
+<Voices>8 -1 -1 -1</Voices>
+</Bar>
+<Bar id="9">
+<Clef>G2</Clef>
+<Voices>9 -1 -1 -1</Voices>
+</Bar>
+</Bars>
+<Voices>
+<Voice id="0">
+<Beats>0 1</Beats>
+</Voice>
+<Voice id="1">
+<Beats>2 3</Beats>
+</Voice>
+<Voice id="2">
+<Beats>4 5</Beats>
+</Voice>
+<Voice id="3">
+<Beats>6 7</Beats>
+</Voice>
+<Voice id="4">
+<Beats>8 9</Beats>
+</Voice>
+<Voice id="5">
+<Beats>10 11</Beats>
+</Voice>
+<Voice id="6">
+<Beats>12 13</Beats>
+</Voice>
+<Voice id="7">
+<Beats>14 15</Beats>
+</Voice>
+<Voice id="8">
+<Beats>16 17</Beats>
+</Voice>
+<Voice id="9">
+<Beats>18 19</Beats>
+</Voice>
+</Voices>
+<Beats>
+<Beat id="0">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="0" />
+<TransposedPitchStemOrientation>Downward</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="1">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="1" />
+<TransposedPitchStemOrientation>Downward</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="2">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="0" />
+<TransposedPitchStemOrientation>Undefined</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="3">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="1" />
+<TransposedPitchStemOrientation>Undefined</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="4">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="0" />
+<TransposedPitchStemOrientation>Downward</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="5">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="1" />
+<TransposedPitchStemOrientation>Downward</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="6">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="0" />
+<TransposedPitchStemOrientation>Undefined</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="7">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="1" />
+<TransposedPitchStemOrientation>Undefined</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="8">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="0" />
+<TransposedPitchStemOrientation>Downward</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="9">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="1" />
+<TransposedPitchStemOrientation>Downward</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="10">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="0" />
+<TransposedPitchStemOrientation>Undefined</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="11">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="1" />
+<TransposedPitchStemOrientation>Undefined</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="12">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="0" />
+<TransposedPitchStemOrientation>Downward</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="13">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="1" />
+<TransposedPitchStemOrientation>Downward</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="14">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="0" />
+<TransposedPitchStemOrientation>Undefined</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="15">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="1" />
+<TransposedPitchStemOrientation>Undefined</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="16">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="0" />
+<TransposedPitchStemOrientation>Downward</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="17">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="1" />
+<TransposedPitchStemOrientation>Downward</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="18">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="0" />
+<TransposedPitchStemOrientation>Undefined</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+<Beat id="19">
+<Dynamic>MF</Dynamic>
+<Rhythm ref="1" />
+<TransposedPitchStemOrientation>Undefined</TransposedPitchStemOrientation>
+<ConcertPitchStemOrientation>Undefined</ConcertPitchStemOrientation>
+<Properties>
+<Property name="PrimaryPickupVolume">
+<Float>0.500000</Float>
+</Property>
+<Property name="PrimaryPickupTone">
+<Float>0.500000</Float>
+</Property>
+</Properties>
+</Beat>
+</Beats>
+<Notes>
+</Notes>
+<Rhythms>
+<Rhythm id="0">
+<NoteValue>Quarter</NoteValue>
+</Rhythm>
+<Rhythm id="1">
+<NoteValue>Half</NoteValue>
+<AugmentationDot count="1" />
+</Rhythm>
+</Rhythms>
+</GPIF>
