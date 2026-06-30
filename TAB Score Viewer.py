@@ -49,10 +49,14 @@ Core Features / 核心功能:
      设置面板 - 集中管理语言/主题/UI字体/GTP渲染参数，支持一键恢复默认，支持持久化与实时预览
  21. Fullscreen mode - F11 toggle / toolbar button / smart ESC behavior (exit fullscreen instead of close)
      全屏模式 - F11切换/工具栏按钮/ESC智能行为(全屏时退出全屏而非关闭)
+ 22. Theme extension system - users can define custom themes via JSON/Python files in themes/ directory,
+     auto-loaded into the settings theme selector, applying to both UI and GTP rendering
+     主题扩展系统 - 用户可在 themes/ 目录下通过 JSON/Python 文件定义自定义主题，
+     自动加载到设置界面的主题选择器中，同时应用到 UI 和 GTP 渲染
 
 Created: 2026-06-06 / 创建日期: 2026-06-06
-Last Modified: 2026-06-30 (v2.1.1 - Metronome gain + time signature denominator)
-最后修改: 2026-06-30 (v2.1.1 - 节拍器全局增益 + 拍号分母输入)
+Last Modified: 2026-06-30 (v2.2.0 - Theme extension system: custom JSON/Python themes)
+最后修改: 2026-06-30 (v2.2.0 - 主题扩展系统：自定义 JSON/Python 主题)
 
 Dependencies / 依赖库:
   - PyQt5 >= 5.15     # GUI framework (windows/widgets/signals/painting/PDF export)
@@ -122,7 +126,7 @@ from PyQt5.QtCore import (
 # 第三方库
 import fitz  # PyMuPDF - PDF解析 (开源库)
 from PIL import Image as PILImage  # Pillow - 图片处理(含WEBP) (开源库)
-from ApolloTab.utils.constants import RenderConfig  # ApolloTab 渲染配置类 (开源库: ApolloTab 0.3.7)
+from ApolloTab.utils.constants import RenderConfig, ThemeConfig  # ApolloTab 渲染配置类与主题配置 (开源库: ApolloTab 1.1.5)
 
 
 # ============================================================
@@ -131,6 +135,9 @@ from ApolloTab.utils.constants import RenderConfig  # ApolloTab 渲染配置类 
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config", "settings.json")
 ANNOTATION_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "annotations")
+# 用户自定义主题目录: 程序启动时自动扫描其中的 .json/.py 主题文件
+# 路径说明: 使用相对路径，兼容 Windows/Linux/Docker 部署
+CUSTOM_THEMES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "themes")
 # 应用图标路径(开发模式: 脚本目录; 打包模式: exe所在目录)
 _APP_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ICON_PATH = os.path.join(_APP_BASE_DIR, "icon.ico")
@@ -382,7 +389,10 @@ class ThemeManager(QObject):
       2. 提供运行时动态切换主题能力
       3. 通过 theme_changed 信号通知所有UI组件刷新样式
       4. 与 ApolloTab 渲染主题联动（浅色UI → light渲染 / 深色UI → dark渲染）
-      5. 主题选择持久化到 settings.json
+      5. 支持用户自定义主题扩展（v2.2.0新增）
+         - 从 themes/ 目录自动加载 JSON/Python 主题文件
+         - 自定义主题同时影响主程序 UI 和 ApolloTab GTP 渲染
+      6. 主题选择持久化到 settings.json
     
     使用方式:
         # 获取当前主题颜色
@@ -390,26 +400,33 @@ class ThemeManager(QObject):
         
         # 切换主题
         ThemeManager.set_theme('light')      # 切换到浅色
+        ThemeManager.set_theme('my_theme')   # 切换到自定义主题
         
         # 监听主题变更
         ThemeManager.theme_changed.connect(my_refresh_func)
         
         # 获取ApolloTab渲染主题名称
-        render_theme = ThemeManager.gtp_render_theme  # "light" 或 "dark"
+        render_theme = ThemeManager.gtp_render_theme  # "light" / "dark" / "my_theme"
     
     可用主题:
       - "dark":  深色音乐风格（默认，护眼）
       - "light": 浅色清新风格（明亮，适合白天/打印）
+      - 用户自定义主题: 通过 themes/ 目录下的 JSON/Python 文件定义
     """
     
     # === pyqtSignal 必须定义为类属性 (PyQt5硬性要求) ===
     # 不能在 __init__ 或其他方法中动态赋值为实例属性，否则 connect/emit 不工作
-    theme_changed = pyqtSignal(str)   # 信号参数: 新主题名称 ("dark" | "light")
+    theme_changed = pyqtSignal(str)   # 信号参数: 新主题名称
 
     _instance = None              # 单例实例
     _initialized: bool = False     # 是否已完成初始化(避免重复调用 QObject.__init__)
     
+    # 用户自定义主题注册表: {theme_name: {"display_name": str, "ui": dict, "gtp": dict}}
+    # 由 load_all_custom_themes() 在程序启动时填充
+    _custom_themes: Dict[str, dict] = {}
+    
     # GTP渲染主题映射: UI主题名 → ApolloTab渲染主题名
+    # 内置主题直接映射到同名预设；自定义主题映射到自身(需提前注册到 ThemeConfig)
     _GTP_THEME_MAP = {
         'dark': 'dark',
         'light': 'light',
@@ -435,6 +452,76 @@ class ThemeManager(QObject):
         super().__init__()
         self._current_theme_name = "dark"
         self._theme_data = dict(THEME_DARK)
+
+    @classmethod
+    def register_theme(cls, name: str, display_name: str, ui_colors: dict,
+                       gtp_colors: dict = None) -> bool:
+        """
+        注册一个自定义主题到 ThemeManager
+
+        参数:
+            name:         主题唯一标识符（会被 lower().strip() 规范化）
+            display_name: 在设置界面显示的名称
+            ui_colors:    UI 配色字典，键与 THEME_DARK 一致
+            gtp_colors:   ApolloTab GTP 渲染配色字典（可选），键为 COLOR_* 格式
+
+        返回:
+            True: 注册成功；False: 名称是内置主题或 ui_colors 为空
+
+        说明:
+          - 为保护内置主题，name 为 "dark"/"light" 时不允许注册
+          - 注册后会同步调用 ApolloTab ThemeConfig.register_theme() 注册 GTP 颜色
+          - 缺失的 UI 颜色会自动用深色主题默认值填充
+          - 缺失的 GTP 颜色会在 ApolloTab 层用深色默认值填充
+        """
+        name_lower = name.lower().strip()
+        if name_lower in ('dark', 'light'):
+            print(f"[ThemeManager] 不允许覆盖内置主题 '{name_lower}'")
+            return False
+        if not ui_colors:
+            print(f"[ThemeManager] 主题 '{name_lower}' 缺少 ui 颜色，注册失败")
+            return False
+
+        # 用深色默认值填充缺失的 UI 颜色键，保证 UI 渲染完整性
+        merged_ui = {**THEME_DARK, **ui_colors}
+
+        cls._custom_themes[name_lower] = {
+            'display_name': display_name or name_lower,
+            'ui': merged_ui,
+            'gtp': gtp_colors or {},
+        }
+
+        # 同步注册到 ApolloTab 渲染主题系统
+        try:
+            ThemeConfig.register_theme(name_lower, gtp_colors or {})
+        except Exception as e:
+            print(f"[ThemeManager] 注册 ApolloTab 主题 '{name_lower}' 失败: {e}")
+
+        print(f"[ThemeManager] 自定义主题已注册: {name_lower} ({display_name})")
+        return True
+
+    @classmethod
+    def unregister_theme(cls, name: str) -> bool:
+        """
+        注销自定义主题
+
+        参数:
+            name: 主题名称
+
+        返回:
+            True: 注销成功；False: 主题是内置主题或不存在
+        """
+        name_lower = name.lower().strip()
+        if name_lower in ('dark', 'light'):
+            return False
+        if name_lower not in cls._custom_themes:
+            return False
+        del cls._custom_themes[name_lower]
+        try:
+            ThemeConfig.unregister_theme(name_lower)
+        except Exception:
+            pass
+        return True
 
     @classmethod
     def get(cls, key: str, default: str = None) -> str:
@@ -476,11 +563,15 @@ class ThemeManager(QObject):
     def gtp_render_theme(self) -> str:
         """
         获取当前UI主题对应的ApolloTab渲染主题名称
-        用于GTP谱面渲染时传递给 TabRenderer.set_theme()
+        用于GTP谱面渲染时传递给 TabRenderer.set_theme() / GTPPlayer.set_theme()
         
         返回:
-            "light" 或 "dark" （与 ApolloTab.ThemeConfig.PRESET_THEMES 对应）
+            内置主题返回 "light" 或 "dark"；
+            自定义主题返回自定义主题名（要求已注册到 ApolloTab ThemeConfig.PRESET_THEMES）
         """
+        # 自定义主题直接返回自身名称（已同步注册到 ApolloTab）
+        if self._current_theme_name in self._custom_themes:
+            return self._current_theme_name
         return self._GTP_THEME_MAP.get(self._current_theme_name, 'dark')
     
     @classmethod
@@ -489,12 +580,31 @@ class ThemeManager(QObject):
         return cls().gtp_render_theme
     
     @classmethod
+    def is_custom_theme(cls, theme_name: str) -> bool:
+        """判断指定名称是否为已注册的自定义主题"""
+        return theme_name.lower().strip() in cls._custom_themes
+    
+    @classmethod
+    def get_custom_theme(cls, theme_name: str) -> Optional[dict]:
+        """
+        获取自定义主题定义（副本）
+        
+        参数:
+            theme_name: 主题名称
+            
+        返回:
+            自定义主题字典 {"display_name": str, "ui": dict, "gtp": dict}，
+            不存在时返回 None
+        """
+        return copy.deepcopy(cls._custom_themes.get(theme_name.lower().strip()))
+    
+    @classmethod
     def set_theme(cls, theme_name: str) -> bool:
         """
         切换全局主题
         
         参数:
-            theme_name: 目标主题名称 ("dark" | "light")
+            theme_name: 目标主题名称 ("dark" | "light" | 自定义主题名)
             
         返回:
             True 成功, False 失败(主题名称无效)
@@ -502,6 +612,7 @@ class ThemeManager(QObject):
         注意:
           切换成功后会发射 theme_changed 信号，
           所有连接此信号的组件应重新应用样式。
+          自定义主题会同步影响 ApolloTab GTP 渲染主题。
         """
         instance = cls()
         theme_name = theme_name.lower().strip()
@@ -513,8 +624,12 @@ class ThemeManager(QObject):
             instance._theme_data = dict(THEME_DARK)
         elif theme_name == 'light':
             instance._theme_data = dict(THEME_LIGHT)
+        elif theme_name in instance._custom_themes:
+            # 自定义主题: 使用注册时已经合并默认值的 UI 配色
+            instance._theme_data = dict(instance._custom_themes[theme_name]['ui'])
         else:
-            print(f"[ThemeManager] 未知主题: '{theme_name}'，可用: dark, light")
+            available = [t[0] for t in cls.available_themes()]
+            print(f"[ThemeManager] 未知主题: '{theme_name}'，可用: {', '.join(available)}")
             return False
         
         old_theme = instance._current_theme_name
@@ -536,11 +651,20 @@ class ThemeManager(QObject):
     
     @classmethod
     def available_themes(cls) -> list:
-        """获取所有可用主题列表 [(name, display_name), ...]"""
-        return [
+        """
+        获取所有可用主题列表 [(name, display_name), ...]
+        
+        返回:
+            包含内置主题和已注册自定义主题的列表
+        """
+        themes = [
             ('dark', '深色模式 (Dark)'),
             ('light', '浅色模式 (Light)'),
         ]
+        # 按注册顺序追加自定义主题
+        for name, data in cls._custom_themes.items():
+            themes.append((name, data.get('display_name', name)))
+        return themes
     
     @classmethod
     def apply_stylesheet(cls, widget, extra_css: str = "") -> None:
@@ -583,6 +707,202 @@ class ThemeManager(QObject):
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
         """
         widget.setStyleSheet(base_css + extra_css)
+
+
+# ============================================================
+# 自定义主题扩展加载系统 (v2.2.0 新增)
+# ============================================================
+
+def _load_theme_from_json(file_path: str) -> Optional[dict]:
+    """
+    从 JSON 文件加载主题定义
+
+    参数:
+        file_path: 主题文件绝对路径
+
+    返回:
+        主题字典 {"name": str, "display_name": str, "ui": dict, "gtp": dict}
+        解析失败或格式不符时返回 None
+
+    文件格式示例:
+        {
+          "name": "sepia",
+          "display_name": "Sepia (护眼纸色)",
+          "ui": {
+            "bg_primary": "#F5E6D3",
+            "text_primary": "#4A3728",
+            ...
+          },
+          "gtp": {
+            "COLOR_BG": "#F5E6D3",
+            "COLOR_TEXT": "#4A3728",
+            ...
+          }
+        }
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"[主题加载] JSON 解析失败 '{file_path}': {e}")
+        return None
+
+    if not isinstance(data, dict):
+        print(f"[主题加载] 文件内容必须是 JSON 对象 '{file_path}'")
+        return None
+
+    name = data.get('name')
+    if not name or not isinstance(name, str):
+        print(f"[主题加载] 缺少有效的 'name' 字段 '{file_path}'")
+        return None
+
+    ui_colors = data.get('ui')
+    gtp_colors = data.get('gtp')
+    if not isinstance(ui_colors, dict) or not ui_colors:
+        print(f"[主题加载] 主题 '{name}' 缺少非空 'ui' 颜色定义，跳过")
+        return None
+    if not isinstance(gtp_colors, dict) or not gtp_colors:
+        print(f"[主题加载] 主题 '{name}' 缺少非空 'gtp' 颜色定义，跳过")
+        return None
+
+    return {
+        'name': name,
+        'display_name': data.get('display_name', name),
+        'ui': ui_colors,
+        'gtp': gtp_colors,
+    }
+
+
+def _load_theme_from_py(file_path: str) -> Optional[dict]:
+    """
+    从 Python 文件加载主题定义
+
+    参数:
+        file_path: 主题文件绝对路径
+
+    返回:
+        主题字典 {"name": str, "display_name": str, "ui": dict, "gtp": dict}
+        解析失败或格式不符时返回 None
+
+    文件格式示例:
+        THEME = {
+            "name": "sepia",
+            "display_name": "Sepia (护眼纸色)",
+            "ui": { ... },
+            "gtp": { ... },
+        }
+
+    说明:
+      - 使用 importlib.util 安全加载模块，避免污染 sys.modules
+      - 只读取模块级变量 THEME，不执行其他副作用代码
+    """
+    import importlib.util
+    try:
+        spec = importlib.util.spec_from_file_location("custom_theme_module", file_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except Exception as e:
+        print(f"[主题加载] Python 模块加载失败 '{file_path}': {e}")
+        return None
+
+    if not hasattr(module, 'THEME'):
+        print(f"[主题加载] Python 文件中缺少 THEME 变量 '{file_path}'")
+        return None
+
+    data = module.THEME
+    if not isinstance(data, dict):
+        print(f"[主题加载] THEME 必须是字典 '{file_path}'")
+        return None
+
+    name = data.get('name')
+    if not name or not isinstance(name, str):
+        print(f"[主题加载] 缺少有效的 'name' 字段 '{file_path}'")
+        return None
+
+    ui_colors = data.get('ui')
+    gtp_colors = data.get('gtp')
+    if not isinstance(ui_colors, dict) or not ui_colors:
+        print(f"[主题加载] 主题 '{name}' 缺少非空 'ui' 颜色定义，跳过")
+        return None
+    if not isinstance(gtp_colors, dict) or not gtp_colors:
+        print(f"[主题加载] 主题 '{name}' 缺少非空 'gtp' 颜色定义，跳过")
+        return None
+
+    return {
+        'name': name,
+        'display_name': data.get('display_name', name),
+        'ui': ui_colors,
+        'gtp': gtp_colors,
+    }
+
+
+def load_all_custom_themes() -> int:
+    """
+    扫描 CUSTOM_THEMES_DIR 目录，自动加载所有 JSON/Python 主题文件
+
+    返回:
+        成功加载并注册的主题数量
+
+    说明:
+      - 支持的文件扩展名: .json, .py
+      - 跳过以下划线或点开头的文件/目录
+      - 每个文件独立解析，单个文件失败不影响其他文件
+      - 加载成功后调用 ThemeManager.register_theme() 注册
+      - 主题名冲突时，后加载的覆盖先加载的（按文件名排序顺序）
+    """
+    if not os.path.isdir(CUSTOM_THEMES_DIR):
+        try:
+            os.makedirs(CUSTOM_THEMES_DIR, exist_ok=True)
+            print(f"[主题加载] 已创建自定义主题目录: {CUSTOM_THEMES_DIR}")
+        except Exception as e:
+            print(f"[主题加载] 创建主题目录失败: {e}")
+            return 0
+
+    loaded_count = 0
+    try:
+        entries = sorted(os.listdir(CUSTOM_THEMES_DIR))
+    except Exception as e:
+        print(f"[主题加载] 读取主题目录失败: {e}")
+        return 0
+
+    for entry in entries:
+        # 跳过隐藏文件/目录和临时文件
+        if entry.startswith('_') or entry.startswith('.'):
+            continue
+
+        file_path = os.path.join(CUSTOM_THEMES_DIR, entry)
+        if not os.path.isfile(file_path):
+            continue
+
+        _, ext = os.path.splitext(entry)
+        ext = ext.lower()
+
+        theme_def = None
+        if ext == '.json':
+            theme_def = _load_theme_from_json(file_path)
+        elif ext == '.py':
+            theme_def = _load_theme_from_py(file_path)
+        else:
+            # 不支持的扩展名，静默跳过
+            continue
+
+        if theme_def is None:
+            continue
+
+        # 注册到 ThemeManager（内部会同步到 ApolloTab ThemeConfig）
+        try:
+            ThemeManager.register_theme(
+                name=theme_def['name'],
+                display_name=theme_def['display_name'],
+                ui_colors=theme_def['ui'],
+                gtp_colors=theme_def['gtp'],
+            )
+            loaded_count += 1
+        except Exception as e:
+            print(f"[主题加载] 注册主题失败 '{entry}': {e}")
+
+    print(f"[主题加载] 共加载 {loaded_count} 个自定义主题")
+    return loaded_count
 
 
 # ============================================================
@@ -7875,6 +8195,13 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     app.setStyle('Fusion')  # 使用Fusion样式作为基础，配合自定义深色/浅色主题
     app.setWindowIcon(get_app_icon())  # 设置全局应用图标(任务栏图标/窗口默认图标)
+
+    # v2.2.0 修改: 在加载配置文件前先扫描并注册用户自定义主题，
+    # 这样 settings.json 中保存的自定义主题名才能被正确应用
+    try:
+        load_all_custom_themes()
+    except Exception as e:
+        print(f"[主题加载] 启动时加载自定义主题失败: {e}")
 
     # v2.0.9 修改: 统一从配置文件加载语言/主题/UI字体/GTP渲染参数
     try:

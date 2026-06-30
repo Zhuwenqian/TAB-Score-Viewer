@@ -1,0 +1,36 @@
+{
+  "name": "paper",
+  "display_name": "护眼纸色 (Paper)",
+  "ui": {
+    "bg_primary": "#F5E6D3",
+    "bg_secondary": "#EDE0CF",
+    "bg_surface": "#FFF8F0",
+    "bg_card": "#FFF8F0",
+    "border": "#D4C4B0",
+    "text_primary": "#4A3728",
+    "text_secondary": "#6B5344",
+    "text_muted": "#9E8B7A",
+    "primary": "#8B5A2B",
+    "primary_hover": "#6D4420",
+    "primary_light": "#B5845E",
+    "accent": "#C45C26",
+    "accent_hover": "#9E471C",
+    "accent_light": "#E08B5E",
+    "success": "#3A7D44",
+    "warning": "#B8860B",
+    "danger": "#A83636"
+  },
+  "gtp": {
+    "COLOR_BG": "#F5E6D3",
+    "COLOR_TAB_LINE": "#5C4A3A",
+    "COLOR_TEXT": "#4A3728",
+    "COLOR_BARLINE": "#6B5344",
+    "COLOR_STEM": "#4A3728",
+    "COLOR_BEAM": "#4A3728",
+    "COLOR_TECHNIQUE": "#C45C26",
+    "COLOR_TRACK_NAME": "#8B5A2B",
+    "COLOR_REPEAT": "#3A7D44",
+    "COLOR_HEADER_BG": "#EDE0CF",
+    "COLOR_PAGE_NUMBER": "#9E8B7A"
+  }
+}
